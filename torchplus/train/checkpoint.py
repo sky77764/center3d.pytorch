@@ -165,7 +165,7 @@ def restore_models(model_dir, models, global_step):
 def save_models(model_dir,
                 models,
                 global_step,
-                max_to_keep=15,
+                max_to_keep=100,
                 keep_latest=True):
     with DelayedKeyboardInterrupt():
         name_to_model = _get_name_to_model_map(models)

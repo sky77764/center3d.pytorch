@@ -11,7 +11,10 @@ from second.core import preprocess as prep
 from second.core.geometry import points_in_convex_polygon_3d_jit
 from second.core.point_cloud.bev_ops import points_to_bev
 from second.data import kitti_common as kitti
+from second.core.point_cloud.point_cloud_ops import convert_to_spherical_coor
+from second.data.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 
+import copy
 
 def merge_second_batch(batch_list, _unused=False):
     example_merged = defaultdict(list)
@@ -79,7 +82,8 @@ def prep_pointcloud(input_dict,
                     min_gt_point_dict=None,
                     bev_only=False,
                     use_group_id=False,
-                    out_dtype=np.float32):
+                    out_dtype=np.float32,
+                    num_classes=1):
     """convert point cloud to voxels, create targets if ground truths 
     exists.
     """
@@ -182,10 +186,11 @@ def prep_pointcloud(input_dict,
             used_point_axes = list(range(num_point_features))
             used_point_axes.pop(3)
             points = points[:, used_point_axes]
-        pc_range = voxel_generator.point_cloud_range
-        if bev_only:  # set z and h to limits
-            gt_boxes[:, 2] = pc_range[2]
-            gt_boxes[:, 5] = pc_range[5] - pc_range[2]
+        # pc_range = voxel_generator.point_cloud_range
+        # bev_only = False
+        # if bev_only:  # set z and h to limits
+        #     gt_boxes[:, 2] = pc_range[2]
+        #     gt_boxes[:, 5] = pc_range[5] - pc_range[2]
         prep.noise_per_object_v3_(
             gt_boxes,
             points,
@@ -204,15 +209,16 @@ def prep_pointcloud(input_dict,
             [class_names.index(n) + 1 for n in gt_names], dtype=np.int32)
 
         gt_boxes, points = prep.random_flip(gt_boxes, points)
-        gt_boxes, points = prep.global_rotation(
-            gt_boxes, points, rotation=global_rotation_noise)
-        gt_boxes, points = prep.global_scaling_v2(gt_boxes, points,
-                                                  *global_scaling_noise)
+        # gt_boxes, points = prep.global_rotation(
+        #     gt_boxes, points, rotation=global_rotation_noise)
+        # gt_boxes, points = prep.global_scaling_v2(gt_boxes, points,
+        #                                           *global_scaling_noise)
 
         # Global translation
-        gt_boxes, points = prep.global_translate(gt_boxes, points, global_loc_noise_std)
+        # gt_boxes, points = prep.global_translate(gt_boxes, points, global_loc_noise_std)
 
-        bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
+        # bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
+        bv_range = [0, -40, 70.4, 40]
         mask = prep.filter_gt_box_outside_range(gt_boxes, bv_range)
         gt_boxes = gt_boxes[mask]
         gt_classes = gt_classes[mask]
@@ -227,79 +233,141 @@ def prep_pointcloud(input_dict,
         # shuffle is a little slow.
         np.random.shuffle(points)
 
-    # [0, -40, -3, 70.4, 40, 1]
-    voxel_size = voxel_generator.voxel_size
-    pc_range = voxel_generator.point_cloud_range
-    grid_size = voxel_generator.grid_size
-    # [352, 400]
-
     voxels, coordinates, num_points = voxel_generator.generate(
         points, max_voxels)
+
+    voxel_size = voxel_generator.voxel_size
+    pc_range = copy.deepcopy(voxel_generator.point_cloud_range)
+    grid_size = voxel_generator.grid_size
+    image_h, image_w = grid_size[1], grid_size[0]
+
+    max_objs = 200
+    num_objs = min(gt_boxes.shape[0], max_objs)
+
+    box_np_ops.change_box3d_center_(gt_boxes, src=[0.5, 0.5, 0], dst=[0.5, 0.5, 0.5])
+    spherical_gt_boxes = np.zeros((max_objs, gt_boxes.shape[1]))
+    spherical_gt_boxes[:num_objs, :] = gt_boxes[:num_objs, :]
+    spherical_gt_boxes[:num_objs, :] = convert_to_spherical_coor(gt_boxes[:num_objs, :])
+    spherical_gt_boxes[:num_objs, 0] -= voxel_generator.phi_min
+    spherical_gt_boxes[:num_objs, 1] -= voxel_generator.theta_min
+    spherical_gt_boxes[:num_objs, 0] /= voxel_size[0]
+    spherical_gt_boxes[:num_objs, 1] /= voxel_size[1]
+
+    hm = np.zeros(
+        (num_classes, image_h, image_w), dtype=np.float32)
+    reg = np.zeros((max_objs, 2), dtype=np.float32)
+    dep = np.zeros((max_objs, 1), dtype=np.float32)
+    rotbin = np.zeros((max_objs, 2), dtype=np.int64)
+    rotres = np.zeros((max_objs, 2), dtype=np.float32)
+    dim = np.zeros((max_objs, 3), dtype=np.float32)
+    ind = np.zeros((max_objs), dtype=np.int64)
+    reg_mask = np.zeros((max_objs), dtype=np.uint8)
+    rot_mask = np.zeros((max_objs), dtype=np.uint8)
+
+
+    draw_gaussian = draw_umich_gaussian
+
+    for k in range(num_objs):
+        gt_3d_box = spherical_gt_boxes[k]
+        cls_id = 0
+
+        # center heatmap
+        radius = int(image_h / 30)
+        ct = np.array([gt_3d_box[0], gt_3d_box[1]], dtype=np.float32)
+        ct_int = ct.astype(np.int32)
+        draw_gaussian(hm[cls_id], ct, radius)
+
+        # depth(distance), wlh
+        dep[k] = gt_3d_box[2]
+        dim[k] = gt_3d_box[3:6]
+
+        # reg, ind, mask
+        reg[k] = ct - ct_int
+        ind[k] = ct_int[1] * image_w + ct_int[0]
+        reg_mask[k] = rot_mask[k] = 1
+
+        # TODO: check alpha ry
+        alpha = gt_3d_box[6]
+        if alpha < np.pi / 6. or alpha > 5 * np.pi / 6.:
+            rotbin[k, 0] = 1
+            rotres[k, 0] = alpha - (-0.5 * np.pi)
+        if alpha > -np.pi / 6. or alpha < -5 * np.pi / 6.:
+            rotbin[k, 1] = 1
+            rotres[k, 1] = alpha - (0.5 * np.pi)
 
     example = {
         'voxels': voxels,
         'num_points': num_points,
         'coordinates': coordinates,
-        "num_voxels": np.array([voxels.shape[0]], dtype=np.int64)
+        "num_voxels": np.array([voxels.shape[0]], dtype=np.int64),
+        'voxel_size': voxel_size,
+        'pc_range': pc_range,
+        'hm': hm, 'dep': dep, 'dim': dim, 'ind': ind,
+        'rotbin': rotbin, 'rotres': rotres, 'reg_mask': reg_mask,
+        'rot_mask': rot_mask, 'reg': reg
     }
     example.update({
         'rect': rect,
         'Trv2c': Trv2c,
-        'P2': P2,
+        'P2': P2
     })
+
+
+
+
     # if not lidar_input:
-    feature_map_size = grid_size[:2] // out_size_factor
-    feature_map_size = [*feature_map_size, 1][::-1]
-    if anchor_cache is not None:
-        anchors = anchor_cache["anchors"]
-        anchors_bv = anchor_cache["anchors_bv"]
-        matched_thresholds = anchor_cache["matched_thresholds"]
-        unmatched_thresholds = anchor_cache["unmatched_thresholds"]
-    else:
-        ret = target_assigner.generate_anchors(feature_map_size)
-        anchors = ret["anchors"]
-        anchors = anchors.reshape([-1, 7])
-        matched_thresholds = ret["matched_thresholds"]
-        unmatched_thresholds = ret["unmatched_thresholds"]
-        anchors_bv = box_np_ops.rbbox2d_to_near_bbox(
-            anchors[:, [0, 1, 3, 4, 6]])
-    example["anchors"] = anchors
+    # feature_map_size = grid_size[:2] // out_size_factor
+    # feature_map_size = [*feature_map_size, 1][::-1]
+    # if anchor_cache is not None:
+    #     anchors = anchor_cache["anchors"]
+    #     anchors_bv = anchor_cache["anchors_bv"]
+    #     matched_thresholds = anchor_cache["matched_thresholds"]
+    #     unmatched_thresholds = anchor_cache["unmatched_thresholds"]
+    # else:
+    #     ret = target_assigner.generate_anchors(feature_map_size)
+    #     anchors = ret["anchors"]
+    #     anchors = anchors.reshape([-1, 7])
+    #     matched_thresholds = ret["matched_thresholds"]
+    #     unmatched_thresholds = ret["unmatched_thresholds"]
+    #     anchors_bv = box_np_ops.rbbox2d_to_near_bbox(
+    #         anchors[:, [0, 1, 3, 4, 6]])
+    # example["anchors"] = anchors
     # print("debug", anchors.shape, matched_thresholds.shape)
     # anchors_bv = anchors_bv.reshape([-1, 4])
-    anchors_mask = None
-    if anchor_area_threshold >= 0:
-        coors = coordinates
-        dense_voxel_map = box_np_ops.sparse_sum_for_anchors_mask(
-            coors, tuple(grid_size[::-1][1:]))
-        dense_voxel_map = dense_voxel_map.cumsum(0)
-        dense_voxel_map = dense_voxel_map.cumsum(1)
-        anchors_area = box_np_ops.fused_get_anchors_area(
-            dense_voxel_map, anchors_bv, voxel_size, pc_range, grid_size)
-        anchors_mask = anchors_area > anchor_area_threshold
-        # example['anchors_mask'] = anchors_mask.astype(np.uint8)
-        example['anchors_mask'] = anchors_mask
-    if generate_bev:
-        bev_vxsize = voxel_size.copy()
-        bev_vxsize[:2] /= 2
-        bev_vxsize[2] *= 2
-        bev_map = points_to_bev(points, bev_vxsize, pc_range,
-                                without_reflectivity)
-        example["bev_map"] = bev_map
-    if not training:
-        return example
-    if create_targets:
-        targets_dict = target_assigner.assign(
-            anchors,
-            gt_boxes,
-            anchors_mask,
-            gt_classes=gt_classes,
-            matched_thresholds=matched_thresholds,
-            unmatched_thresholds=unmatched_thresholds)
-        example.update({
-            'labels': targets_dict['labels'],
-            'reg_targets': targets_dict['bbox_targets'],
-            'reg_weights': targets_dict['bbox_outside_weights'],
-        })
+    # anchors_mask = None
+    # if anchor_area_threshold >= 0:
+    #     coors = coordinates
+    #     dense_voxel_map = box_np_ops.sparse_sum_for_anchors_mask(
+    #         coors, tuple(grid_size[::-1][1:]))
+    #     dense_voxel_map = dense_voxel_map.cumsum(0)
+    #     dense_voxel_map = dense_voxel_map.cumsum(1)
+    #     anchors_area = box_np_ops.fused_get_anchors_area(
+    #         dense_voxel_map, anchors_bv, voxel_size, pc_range, grid_size)
+    #     anchors_mask = anchors_area > anchor_area_threshold
+    #     # example['anchors_mask'] = anchors_mask.astype(np.uint8)
+    #     example['anchors_mask'] = anchors_mask
+    # if generate_bev:
+    #     bev_vxsize = voxel_size.copy()
+    #     bev_vxsize[:2] /= 2
+    #     bev_vxsize[2] *= 2
+    #     bev_map = points_to_bev(points, bev_vxsize, pc_range,
+    #                             without_reflectivity)
+    #     example["bev_map"] = bev_map
+    # if not training:
+    #     return example
+    # if create_targets:
+    #     targets_dict = target_assigner.assign(
+    #         anchors,
+    #         gt_boxes,
+    #         anchors_mask,
+    #         gt_classes=gt_classes,
+    #         matched_thresholds=matched_thresholds,
+    #         unmatched_thresholds=unmatched_thresholds)
+    #     example.update({
+    #         'labels': targets_dict['labels'],
+    #         'reg_targets': targets_dict['bbox_targets'],
+    #         'reg_weights': targets_dict['bbox_outside_weights'],
+    #     })
     return example
 
 

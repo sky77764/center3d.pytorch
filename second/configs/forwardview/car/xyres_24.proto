@@ -1,8 +1,8 @@
 model: {
   second: {
     voxel_generator {
-      point_cloud_range : [0, -39.68, -3, 69.12, 39.68, 1]
-      voxel_size : [0.16, 0.16, 4]
+      point_cloud_range : [0, -40.32, -3, 71.04, 40.32, 1]
+      voxel_size : [0.24, 0.24, 4]
       max_number_of_points_per_voxel : 100
     }
     num_class: 1
@@ -55,7 +55,7 @@ model: {
 
     loss_norm_type: NormByNumPositives
     # Postprocess
-    post_center_limit_range: [0, -39.68, -5, 69.12, 39.68, 5]
+    post_center_limit_range: [0, -40.32, -5, 71.04, 40.32, 5]
     use_rotate_nms: false
     use_multi_class_nms: false
     nms_pre_max_size: 1000
@@ -76,8 +76,8 @@ model: {
       anchor_generators: {
          anchor_generator_stride: {
            sizes: [1.6, 3.9, 1.56] # wlh
-           strides: [0.32, 0.32, 0.0] # if generate only 1 z_center, z_stride will be ignored
-           offsets: [0.16, -39.52, -1.78] # origin_offset + strides / 2
+           strides: [0.48, 0.48, 0.0] # if generate only 1 z_center, z_stride will be ignored
+           offsets: [0.24, -40.08, -1.78] # origin_offset + strides / 2
            rotations: [0, 1.57] # 0, pi/2
            matched_threshold : 0.6
            unmatched_threshold : 0.45
@@ -96,7 +96,7 @@ model: {
 
 
 train_input_reader: {
-  record_file_path: "/home/js/data/KITTI/object/kitti_train.tfrecord"
+  record_file_path: "/data/sets/kitti_second/kitti_train.tfrecord"
   class_names: ["Car"]
   max_num_epochs : 160
   batch_size: 2
@@ -114,7 +114,7 @@ train_input_reader: {
   groundtruth_points_drop_percentage: 0.0
   groundtruth_drop_max_keep_points: 15
   database_sampler {
-    database_info_path: "/home/js/data/KITTI/object/kitti_dbinfos_train.pkl"
+    database_info_path: "/data/sets/kitti_second/kitti_dbinfos_train.pkl"
     sample_groups {
       name_to_max_num {
         key: "Car"
@@ -140,8 +140,8 @@ train_input_reader: {
 
   remove_unknown_examples: false
   remove_environment: false
-  kitti_info_path: "/home/js/data/KITTI/object/kitti_infos_train.pkl"
-  kitti_root_path: "/home/js/data/KITTI/object"
+  kitti_info_path: "/data/sets/kitti_second/kitti_infos_train.pkl"
+  kitti_root_path: "/data/sets/kitti_second"
 }
 
 train_config: {
@@ -172,7 +172,7 @@ train_config: {
 }
 
 eval_input_reader: {
-  record_file_path: "/home/js/data/KITTI/object/kitti_val.tfrecord"
+  record_file_path: "/data/sets/kitti_second/kitti_val.tfrecord"
   class_names: ["Car"]
   batch_size: 2
   max_num_epochs : 160
@@ -182,6 +182,6 @@ eval_input_reader: {
   num_workers: 3
   anchor_area_threshold: 1
   remove_environment: false
-  kitti_info_path: "/home/js/data/KITTI/object/kitti_infos_val.pkl"
-  kitti_root_path: "/home/js/data/KITTI/object"
+  kitti_info_path: "/data/sets/kitti_second/kitti_infos_val.pkl"
+  kitti_root_path: "/data/sets/kitti_second"
 }

@@ -242,7 +242,7 @@ def train(config_path,
                     example = next(data_iter)
                 example_torch = example_convert_to_torch(example, float_dtype)
 
-                batch_size = example["anchors"].shape[0]
+                batch_size = input_cfg.batch_size
 
                 ret_dict = net(example_torch)
 

@@ -56,7 +56,8 @@ class InferenceContext:
             anchor_area_threshold=input_cfg.anchor_area_threshold,
             anchor_cache=self.anchor_cache,
             out_size_factor=out_size_factor,
-            out_dtype=np.float32)
+            out_dtype=np.float32,
+            num_classes=model_cfg.num_class)
         example["image_idx"] = info['image_idx']
         example["image_shape"] = input_dict["image_shape"]
         example["points"] = points

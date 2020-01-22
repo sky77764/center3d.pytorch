@@ -2,17 +2,17 @@ model: {
   second: {
     voxel_generator {
       point_cloud_range : [0, -39.68, -3, 69.12, 39.68, 1]
-      voxel_size : [0.16, 0.16, 4]
+      voxel_size : [1280, 384, 1]
       max_number_of_points_per_voxel : 100
     }
     num_class: 1
     voxel_feature_extractor: {
-      module_class_name: "PillarFeatureNet"
+      module_class_name: "ForwardViewFeatureNet"
       num_filters: [64]
       with_distance: false
     }
     middle_feature_extractor: {
-      module_class_name: "PointPillarsScatter"
+      module_class_name: "ForwardViewScatter"
     }
     rpn: {
       module_class_name: "RPN"
@@ -101,7 +101,7 @@ train_input_reader: {
   max_num_epochs : 160
   batch_size: 2
   prefetch_size : 25
-  max_number_of_voxels: 12000
+  max_number_of_voxels: 20000
   shuffle_points: true
   num_workers: 2
   groundtruth_localization_noise_std: [0.25, 0.25, 0.25]

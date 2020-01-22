@@ -55,6 +55,21 @@ class TargetAssigner:
             norm_by_num_examples=False,
             box_code_size=self.box_coder.code_size)
 
+    def convert_to_spherical_coor(self, points):
+        x = points[:, :, :, :, 0]
+        y = points[:, :, :, :, 1]
+        z = points[:, :, :, :, 2]
+
+        distance = np.sqrt(x * x + y * y + z * z)
+        phi = np.arctan(y / x)
+        theta = np.arccos(z / distance)
+
+        points[:, :, :, :, 0] = phi
+        points[:, :, :, :, 1] = theta
+        points[:, :, :, :, 2] = distance
+
+        return points
+
     def generate_anchors(self, feature_map_size):
         anchors_list = []
         matched_thresholds = [
@@ -69,6 +84,7 @@ class TargetAssigner:
                 unmatched_thresholds):
             anchors = anchor_generator.generate(feature_map_size)
             anchors = anchors.reshape([*anchors.shape[:3], -1, 7])
+            anchors = self.convert_to_spherical_coor(anchors)
             anchors_list.append(anchors)
             num_anchors = np.prod(anchors.shape[:-1])
             match_list.append(
