@@ -537,7 +537,7 @@ class DLASeg(nn.Module):
     def __init__(self, base_name, heads,
                  pretrained=True, down_ratio=4, head_conv=256):
         super(DLASeg, self).__init__()
-        assert down_ratio in [2, 4, 8, 16]
+        assert down_ratio in [1, 2, 4, 8, 16]
         self.heads = heads
         self.first_level = int(np.log2(down_ratio))
         self.base = globals()[base_name](

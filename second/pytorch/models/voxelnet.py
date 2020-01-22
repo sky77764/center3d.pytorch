@@ -636,7 +636,7 @@ class VoxelNet(nn.Module):
                 num_rpn_input_filters = int(middle_num_filters_d2[-1] * 2)
 
         heads = {'hm':num_class, 'dep':1, 'rot':8, 'dim':3, 'reg':2}
-        self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256)
+        self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256, down_ratio=1)
 
         # rpn_class_dict = {
         #     "RPN": RPN,
@@ -762,17 +762,27 @@ class VoxelNet(nn.Module):
 
             output['hm'] = torch.clamp(output['hm'].sigmoid_(), min=1e-4, max=1 - 1e-4)
             output['dep'] = 1. / (output['dep'].sigmoid() + 1e-6) - 1.
+            
+            label_hm = torch.from_numpy(example['hm']).cuda()
+            label_dep = torch.from_numpy(example['dep']).cuda()
+            label_dim = torch.from_numpy(example['dim']).cuda()
+            label_rotbin = torch.from_numpy(example['rotbin']).cuda()
+            label_rotres = torch.from_numpy(example['rotres']).cuda()
+            label_reg = torch.from_numpy(example['reg']).cuda()
+            label_ind = torch.from_numpy(example['ind']).cuda()
+            label_reg_mask = torch.from_numpy(example['reg_mask']).cuda()
+            label_rot_mask = torch.from_numpy(example['rot_mask']).cuda()
 
-            hm_loss = self.crit(output['hm'], example['hm'])
-            dep_loss = self.crit_reg(output['dep'], example['reg_mask'], example['ind'], example['dep'])
-            dim_loss = self.crit_reg(output['dim'], example['reg_mask'], example['ind'], example['dim'])
-            rot_loss = self.crit_rot(output['rot'], example['rot_mask'], example['ind'], example['rotbin'], example['rotres'])
-            off_loss = self.crit_reg(output['reg'], example['rot_mask'], example['ind'], example['reg'])
+            hm_loss = self.crit(output['hm'], label_hm)
+            dep_loss = self.crit_reg(output['dep'], label_reg_mask, label_ind, label_dep)
+            dim_loss = self.crit_reg(output['dim'], label_reg_mask, label_ind, label_dim)
+            rot_loss = self.crit_rot(output['rot'], label_rot_mask, label_ind, label_rotbin, label_rotres)
+            off_loss = self.crit_reg(output['reg'], label_rot_mask, label_ind, label_reg)
             loss = self.hm_weight * hm_loss + self.dep_weight * dep_loss + \
                    self.dim_weight * dim_loss + self.rot_weight * rot_loss + \
                    self.off_weight * off_loss
 
-            loss_stats = {'loss': loss, 'hm_loss': hm_loss, 'dep_loss': dep_loss,
+            return {'loss': loss, 'hm_loss': hm_loss, 'dep_loss': dep_loss,
                           'dim_loss': dim_loss, 'rot_loss': rot_loss, 'off_loss': off_loss}
             
             # labels = example['labels']

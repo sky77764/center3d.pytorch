@@ -246,20 +246,23 @@ def train(config_path,
 
                 ret_dict = net(example_torch)
 
+
                 # box_preds = ret_dict["box_preds"]
-                cls_preds = ret_dict["cls_preds"]
-                loss = ret_dict["loss"].mean()
-                cls_loss_reduced = ret_dict["cls_loss_reduced"].mean()
-                loc_loss_reduced = ret_dict["loc_loss_reduced"].mean()
-                cls_pos_loss = ret_dict["cls_pos_loss"]
-                cls_neg_loss = ret_dict["cls_neg_loss"]
-                loc_loss = ret_dict["loc_loss"]
-                cls_loss = ret_dict["cls_loss"]
-                dir_loss_reduced = ret_dict["dir_loss_reduced"]
-                cared = ret_dict["cared"]
-                labels = example_torch["labels"]
-                if train_cfg.enable_mixed_precision:
-                    loss *= loss_scale
+                # cls_preds = ret_dict["cls_preds"]
+                # loss = ret_dict["loss"].mean()
+                # cls_loss_reduced = ret_dict["cls_loss_reduced"].mean()
+                # loc_loss_reduced = ret_dict["loc_loss_reduced"].mean()
+                # cls_pos_loss = ret_dict["cls_pos_loss"]
+                # cls_neg_loss = ret_dict["cls_neg_loss"]
+                # loc_loss = ret_dict["loc_loss"]
+                # cls_loss = ret_dict["cls_loss"]
+                # dir_loss_reduced = ret_dict["dir_loss_reduced"]
+                # cared = ret_dict["cared"]
+                # labels = example_torch["labels"]
+                # if train_cfg.enable_mixed_precision:
+                #     loss *= loss_scale
+
+                loss = ret_dict["loss"]
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
                 mixed_optimizer.step()
