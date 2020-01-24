@@ -246,6 +246,13 @@ def train(config_path,
 
                 ret_dict = net(example_torch)
 
+                loss = ret_dict['loss']
+                hm_loss = ret_dict['hm_loss']
+                dep_loss = ret_dict['dep_loss']
+                dim_loss = ret_dict['dim_loss']
+                rot_loss = ret_dict['rot_loss']
+                off_loss = ret_dict['off_loss']
+
 
                 # box_preds = ret_dict["box_preds"]
                 # cls_preds = ret_dict["cls_preds"]
@@ -262,50 +269,61 @@ def train(config_path,
                 # if train_cfg.enable_mixed_precision:
                 #     loss *= loss_scale
 
-                loss = ret_dict["loss"]
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
                 mixed_optimizer.step()
                 mixed_optimizer.zero_grad()
                 net.update_global_step()
-                net_metrics = net.update_metrics(cls_loss_reduced,
-                                                 loc_loss_reduced, cls_preds,
-                                                 labels, cared)
+                # net_metrics = net.update_metrics(cls_loss_reduced,
+                #                                  loc_loss_reduced, cls_preds,
+                #                                  labels, cared)
 
                 step_time = (time.time() - t)
                 t = time.time()
                 metrics = {}
-                num_pos = int((labels > 0)[0].float().sum().cpu().numpy())
-                num_neg = int((labels == 0)[0].float().sum().cpu().numpy())
-                if 'anchors_mask' not in example_torch:
-                    num_anchors = example_torch['anchors'].shape[1]
-                else:
-                    num_anchors = int(example_torch['anchors_mask'][0].sum())
+                # num_pos = int((labels > 0)[0].float().sum().cpu().numpy())
+                # num_neg = int((labels == 0)[0].float().sum().cpu().numpy())
+                # if 'anchors_mask' not in example_torch:
+                #     num_anchors = example_torch['anchors'].shape[1]
+                # else:
+                #     num_anchors = int(example_torch['anchors_mask'][0].sum())
                 global_step = net.get_global_step()
                 if global_step % display_step == 0:
-                    loc_loss_elem = [
-                        float(loc_loss[:, :, i].sum().detach().cpu().numpy() /
-                              batch_size) for i in range(loc_loss.shape[-1])
-                    ]
+                    # loc_loss_elem = [
+                    #     float(loc_loss[:, :, i].sum().detach().cpu().numpy() /
+                    #           batch_size) for i in range(loc_loss.shape[-1])
+                    # ]
+                    loss = ret_dict['loss']
+                    hm_loss = ret_dict['hm_loss']
+                    dep_loss = ret_dict['dep_loss']
+                    dim_loss = ret_dict['dim_loss']
+                    rot_loss = ret_dict['rot_loss']
+                    off_loss = ret_dict['off_loss']
                     metrics["step"] = global_step
                     metrics["steptime"] = step_time
-                    metrics.update(net_metrics)
+                    # metrics.update(net_metrics)
                     metrics["loss"] = {}
-                    metrics["loss"]["loc_elem"] = loc_loss_elem
-                    metrics["loss"]["cls_pos_rt"] = float(
-                        cls_pos_loss.detach().cpu().numpy())
-                    metrics["loss"]["cls_neg_rt"] = float(
-                        cls_neg_loss.detach().cpu().numpy())
-                    # if unlabeled_training:
-                    #     metrics["loss"]["diff_rt"] = float(
-                    #         diff_loc_loss_reduced.detach().cpu().numpy())
-                    if model_cfg.use_direction_classifier:
-                        metrics["loss"]["dir_rt"] = float(
-                            dir_loss_reduced.detach().cpu().numpy())
-                    metrics["num_vox"] = int(example_torch["voxels"].shape[0])
-                    metrics["num_pos"] = int(num_pos)
-                    metrics["num_neg"] = int(num_neg)
-                    metrics["num_anchors"] = int(num_anchors)
+                    metrics["loss"]["loss"] = float(loss.detach().cpu().numpy())
+                    metrics["loss"]["hm_loss"] = float(hm_loss.detach().cpu().numpy())
+                    metrics["loss"]["dep_loss"] = float(dep_loss.detach().cpu().numpy())
+                    metrics["loss"]["dim_loss"] = float(dim_loss.detach().cpu().numpy())
+                    metrics["loss"]["rot_loss"] = float(rot_loss.detach().cpu().numpy())
+                    metrics["loss"]["off_loss"] = float(off_loss.detach().cpu().numpy())
+                    # metrics["loss"]["loc_elem"] = loc_loss_elem
+                    # metrics["loss"]["cls_pos_rt"] = float(
+                    #     cls_pos_loss.detach().cpu().numpy())
+                    # metrics["loss"]["cls_neg_rt"] = float(
+                    #     cls_neg_loss.detach().cpu().numpy())
+                    # # if unlabeled_training:
+                    # #     metrics["loss"]["diff_rt"] = float(
+                    # #         diff_loc_loss_reduced.detach().cpu().numpy())
+                    # if model_cfg.use_direction_classifier:
+                    #     metrics["loss"]["dir_rt"] = float(
+                    #         dir_loss_reduced.detach().cpu().numpy())
+                    # metrics["num_vox"] = int(example_torch["voxels"].shape[0])
+                    # metrics["num_pos"] = int(num_pos)
+                    # metrics["num_neg"] = int(num_neg)
+                    # metrics["num_anchors"] = int(num_anchors)
                     metrics["lr"] = float(
                         mixed_optimizer.param_groups[0]['lr'])
                     metrics["image_idx"] = example['image_idx'][0]

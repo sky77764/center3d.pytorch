@@ -45,6 +45,17 @@ def merge_second_batch(batch_list, _unused=False):
     return ret
 
 
+def filter_outside_range(spherical_gt_boxes, num_objs, grid_size):
+    mask = np.logical_or(spherical_gt_boxes[:, 0] > grid_size[0], spherical_gt_boxes[:, 1] > grid_size[1])
+    delete_cnt = mask.astype(int).sum()
+    if delete_cnt > 0:
+        spherical_gt_boxes = spherical_gt_boxes[np.logical_not(mask),:]
+        spherical_gt_boxes = np.append(spherical_gt_boxes, np.zeros((delete_cnt, 7), dtype=float), axis=0)
+
+    return spherical_gt_boxes, num_objs-delete_cnt
+
+
+
 def prep_pointcloud(input_dict,
                     root_path,
                     voxel_generator,
@@ -252,6 +263,8 @@ def prep_pointcloud(input_dict,
     spherical_gt_boxes[:num_objs, 1] -= voxel_generator.theta_min
     spherical_gt_boxes[:num_objs, 0] /= voxel_size[0]
     spherical_gt_boxes[:num_objs, 1] /= voxel_size[1]
+
+    spherical_gt_boxes, num_objs = filter_outside_range(spherical_gt_boxes, num_objs, grid_size)
 
     hm = np.zeros(
         (num_classes, image_h, image_w), dtype=np.float32)
