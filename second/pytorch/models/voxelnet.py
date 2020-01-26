@@ -876,7 +876,7 @@ class VoxelNet(nn.Module):
         # torch.cuda.synchronize()
         dets = ddd_decode(output['hm'], output['rot'], output['dep'],
                           output['dim'], reg=reg, K=40)
-        predictions_dicts = ddd_post_process(dets.copy(), [meta['c']], [meta['s']], [meta['calib']], self.opt)
+        predictions_dicts = self.post_process(dets, example['meta'][0])
 
 #                 # predictions
 #                 predictions_dict = {
@@ -904,7 +904,7 @@ class VoxelNet(nn.Module):
     def post_process(self, dets, meta, scale=1):
         dets = dets.detach().cpu().numpy()
         detections = ddd_post_process(
-            dets.copy(), [meta['c']], [meta['s']], [meta['calib']], self.opt)
+            dets.copy(), meta['c'], meta['s'], meta['calib'], self._output_shape[3], self._output_shape[2], num_classes = self._num_class)
         self.this_calib = meta['calib']
         return detections[0]
 

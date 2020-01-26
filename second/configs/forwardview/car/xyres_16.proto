@@ -163,7 +163,8 @@ train_config: {
   inter_op_parallelism_threads: 4
   intra_op_parallelism_threads: 4
   steps: 296960 # 1856 steps per epoch * 160 epochs
-  steps_per_eval: 9280 # 1856 steps per epoch * 5 epochs
+#  steps_per_eval: 9280 # 1856 steps per epoch * 5 epochs
+  steps_per_eval: 50
   save_checkpoints_secs : 1800 # half hour
   save_summary_steps : 10
   enable_mixed_precision: false
@@ -177,7 +178,7 @@ eval_input_reader: {
   batch_size: 2
   max_num_epochs : 160
   prefetch_size : 25
-  max_number_of_voxels: 12000
+  max_number_of_voxels: 20000
   shuffle_points: false
   num_workers: 3
   anchor_area_threshold: 1
