@@ -491,3 +491,25 @@ def rotate_nms(rbboxes,
         return indices[keep]
     else:
         return torch.from_numpy(keep).long().cuda()
+
+
+def convert_to_cartesian_coor(points, phi_min=0, theta_min=0):
+    phi = torch.unsqueeze(points[:, 0], 1)
+    theta = torch.unsqueeze(points[:, 1], 1)
+    distance = torch.unsqueeze(points[:, 2], 1)
+
+    phi += phi_min
+    theta += theta_min
+
+    x = torch.sin(theta) * torch.cos(phi) * distance
+    y = torch.sin(theta) * torch.sin(theta) * distance
+    z = torch.cos(theta) * distance
+
+    if points.shape[1] == 4:
+        etc = torch.unsqueeze(points[:, 3], 1)
+        return torch.cat((x, y, z, etc), 1)
+    elif points.shape[1] > 4:
+        etc = points[:, 3:]
+        return torch.cat((x, y, z, etc), 1)
+    else:
+        return torch.cat((x, y, z), 1)

@@ -187,6 +187,7 @@ def convert_to_spherical_coor(points):
         return np.concatenate((phi, theta, distance), axis=1)
 
 
+
 def show_fv_map(spherical_points, image_size, coors_range):
     import cv2
     fvmap = np.zeros((image_size[0], image_size[1], 1))

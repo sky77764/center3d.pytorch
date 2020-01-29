@@ -509,6 +509,7 @@ def predict_kitti_to_anno(net,
     predictions_dicts = net(example)
     # t = time.time()
     annos = []
+
     for i, preds_dict in enumerate(predictions_dicts):
         image_shape = batch_image_shape[i]
         img_idx = preds_dict["image_idx"]

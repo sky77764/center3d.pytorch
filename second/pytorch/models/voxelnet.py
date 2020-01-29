@@ -676,13 +676,15 @@ class VoxelNet(nn.Module):
         self.rpn_total_loss = metrics.Scalar()
         self.register_buffer("global_step", torch.LongTensor(1).zero_())
 
+        self.debug_mode = False
+
     def update_global_step(self):
         self.global_step += 1
 
     def get_global_step(self):
         return int(self.global_step.cpu().numpy()[0])
 
-    def show_fv_map(self, voxels, coords, batch_size, hm=None):
+    def show_fv_map(self, voxels, coords, batch_size, hm=None, output=None, name=''):
         import cv2
         voxels = torch.mean(voxels, dim=1, keepdim=True)
         voxel_features = voxels.squeeze()
@@ -725,8 +727,19 @@ class VoxelNet(nn.Module):
                 fvmap += hm[i,0]
 
             cv2.imshow('fvmap'+str(i), fvmap)
+        if output is not None:
+            self.show_output(output, name=name)
         cv2.waitKey(0)
         cv2.destroyAllWindows()
+
+    def show_output(self, output, name=''):
+        import cv2
+        batch_size = output.shape[0]
+
+        for i in range(batch_size):
+            fvmap = np.transpose(output[i].detach().cpu().numpy(), (1, 2, 0))
+            cv2.imshow(name+' '+str(i), fvmap)
+
 
     def forward(self, example):
         """module's forward should always accept dict and return loss.
@@ -742,10 +755,7 @@ class VoxelNet(nn.Module):
         # num_points: [num_voxels]
         # coors: [num_voxels, 4]
         self.voxel_feature_extractor.update_values(example["voxel_size"], example["pc_range"])
-        debug = False
-        if debug:
-            hm = example['hm']
-            self.show_fv_map(voxels, coors, batch_size_dev, hm=hm)
+
         voxel_features = self.voxel_feature_extractor(voxels, num_points, coors, batch_size_dev)
         if self._use_sparse_rpn:
             preds_dict = self.sparse_rpn(voxel_features, coors, batch_size_dev)
@@ -759,6 +769,10 @@ class VoxelNet(nn.Module):
         # cls_preds = preds_dict["cls_preds"]
         self._total_forward_time += time.time() - t
         if self.training:
+            if self.debug_mode:
+                hm = example['hm']
+                self.show_fv_map(voxels, coors, batch_size_dev, hm=hm)
+
             # labels = example['labels']
             output = preds_dict
 
@@ -858,10 +872,6 @@ class VoxelNet(nn.Module):
         batch_rect = example["rect"]
         batch_Trv2c = example["Trv2c"]
         batch_P2 = example["P2"]
-        # if "anchors_mask" not in example:
-        #     batch_anchors_mask = [None] * batch_size
-        # else:
-        #     batch_anchors_mask = example["anchors_mask"].view(batch_size, -1)
         batch_imgidx = example['image_idx']
 
         self._total_forward_time += time.time() - t
@@ -874,39 +884,80 @@ class VoxelNet(nn.Module):
         # wh = output['wh'] if self.opt.reg_bbox else None
         reg = output['reg']
         # torch.cuda.synchronize()
+        if self.debug_mode:
+            self.show_fv_map(example['voxels'], example['coordinates'], batch_size, output=output['hm'], name='heatmap')
         dets = ddd_decode(output['hm'], output['rot'], output['dep'],
                           output['dim'], reg=reg, K=40)
-        predictions_dicts = self.post_process(dets, example['meta'][0])
+        dets = self.post_process(dets, example['meta'], example['voxel_size'])
 
-#                 # predictions
-#                 predictions_dict = {
-#                     "bbox": box_2d_preds,
-#                     "box3d_camera": final_box_preds_camera,
-#                     "box3d_lidar": final_box_preds,
-#                     "scores": final_scores,
-#                     "label_preds": label_preds,
-#                     "image_idx": img_idx,
-#                 }
-#             else:
-#                 predictions_dict = {
-#                     "bbox": None,
-#                     "box3d_camera": None,
-#                     "box3d_lidar": None,
-#                     "scores": None,
-#                     "label_preds": None,
-#                     "image_idx": img_idx,
-#                 }
-#             predictions_dicts.append(predictions_dict)
+        predictions_dicts = []
+        score_thresh = 0.05
+        selected_boxes = None
+        for i in range(len(dets)):
+            for cls_id, det in dets[i].items():
+                det = torch.from_numpy(det).float().cuda()
+                selected_boxes = torch.nonzero(det[:, 8] >= score_thresh).cuda()
+                # selected_idx = selected_boxes[0]
+                img_idx = batch_imgidx[i]
+
+                if selected_boxes.shape[0] > 0:
+                # if len(selected_idx) > 0:
+                    # alpha = det[selected_boxes, 0]
+                    # dim = det[selected_boxes, 1:4]
+                    # loc = det[selected_boxes, 4:7]
+                    # ry = det[selected_boxes, 7]
+                    # score = det[selected_boxes, 8]
+                    selected_idx = selected_boxes[:, 0]
+                    label_preds = torch.ones((selected_idx.shape[0], 1)).cuda() * cls_id
+                    final_scores = det[selected_idx, 8]
+                    final_box_preds = det[selected_idx, 1:8]
+                    final_box_preds_camera = box_torch_ops.box_lidar_to_camera(
+                        final_box_preds, batch_rect[i], batch_Trv2c[i])
+
+                    locs = final_box_preds_camera[:, :3]
+                    dims = final_box_preds_camera[:, 3:6]
+                    angles = final_box_preds_camera[:, 6]
+                    camera_box_origin = [0.5, 1.0, 0.5]
+
+                    box_corners = box_torch_ops.center_to_corner_box3d(
+                        locs, dims, angles, camera_box_origin, axis=1)
+                    box_corners_in_image = box_torch_ops.project_to_image(
+                        box_corners, batch_P2[i])
+
+                    # box_corners_in_image: [N, 8, 2]
+                    minxy = torch.min(box_corners_in_image, dim=1)[0]
+                    maxxy = torch.max(box_corners_in_image, dim=1)[0]
+
+                    box_2d_preds = torch.cat([minxy, maxxy], dim=1)
+                    # predictions
+                    predictions_dict = {
+                        "bbox": box_2d_preds,
+                        "box3d_camera": final_box_preds_camera,
+                        "box3d_lidar": final_box_preds,
+                        "scores": final_scores,
+                        "label_preds": label_preds,
+                        "image_idx": img_idx,
+                    }
+                else:
+                    predictions_dict = {
+                        "bbox": None,
+                        "box3d_camera": None,
+                        "box3d_lidar": None,
+                        "scores": None,
+                        "label_preds": None,
+                        "image_idx": img_idx,
+                    }
+                predictions_dicts.append(predictions_dict)
         self._total_postprocess_time += time.time() - t
 
         return predictions_dicts
 
-    def post_process(self, dets, meta, scale=1):
+    def post_process(self, dets, meta, voxel_size, scale=1):
         dets = dets.detach().cpu().numpy()
         detections = ddd_post_process(
-            dets.copy(), meta['c'], meta['s'], meta['calib'], self._output_shape[3], self._output_shape[2], num_classes = self._num_class)
-        self.this_calib = meta['calib']
-        return detections[0]
+            dets.copy(), meta, self._output_shape[3], self._output_shape[2], voxel_size, num_classes = self._num_class)
+        # self.this_calib = meta['calib']
+        return detections
 
     @property
     def avg_forward_time(self):

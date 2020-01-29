@@ -15,6 +15,7 @@ from second.core.point_cloud.point_cloud_ops import convert_to_spherical_coor
 from second.data.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 
 import copy
+import math
 
 def merge_second_batch(batch_list, _unused=False):
     example_merged = defaultdict(list)
@@ -250,10 +251,12 @@ def prep_pointcloud(input_dict,
     voxel_size = voxel_generator.voxel_size
     pc_range = copy.deepcopy(voxel_generator.point_cloud_range)
     grid_size = voxel_generator.grid_size
+    phi_min = voxel_generator.phi_min
+    theta_min = voxel_generator.theta_min
     image_h, image_w = grid_size[1], grid_size[0]
     c = np.array([image_w / 2., image_h / 2.])
     s = np.array([image_w, image_h], dtype=np.int32)
-    meta = {'c': c, 's': s, 'calib': P2}
+    meta = {'c': c, 's': s, 'calib': P2, 'phi_min': phi_min, 'theta_min': theta_min}
 
     example = {
         'voxels': voxels,
@@ -279,8 +282,8 @@ def prep_pointcloud(input_dict,
         spherical_gt_boxes = np.zeros((max_objs, gt_boxes.shape[1]))
         spherical_gt_boxes[:num_objs, :] = gt_boxes[:num_objs, :]
         spherical_gt_boxes[:num_objs, :] = convert_to_spherical_coor(gt_boxes[:num_objs, :])
-        spherical_gt_boxes[:num_objs, 0] -= voxel_generator.phi_min
-        spherical_gt_boxes[:num_objs, 1] -= voxel_generator.theta_min
+        spherical_gt_boxes[:num_objs, 0] -= phi_min
+        spherical_gt_boxes[:num_objs, 1] -= theta_min
         spherical_gt_boxes[:num_objs, 0] /= voxel_size[0]
         spherical_gt_boxes[:num_objs, 1] /= voxel_size[1]
 
@@ -319,7 +322,7 @@ def prep_pointcloud(input_dict,
             ind[k] = ct_int[1] * image_w + ct_int[0]
             reg_mask[k] = rot_mask[k] = 1
 
-            # TODO: check alpha ry
+            # ry
             alpha = gt_3d_box[6]
             if alpha < np.pi / 6. or alpha > 5 * np.pi / 6.:
                 rotbin[k, 0] = 1
@@ -372,10 +375,13 @@ def _read_and_prep_v9(info, root_path, num_point_features, prep_func):
         loc = annos["location"]
         dims = annos["dimensions"]
         rots = annos["rotation_y"]
+        # alpha = annos["alpha"]
         gt_names = annos["name"]
         # print(gt_names, len(loc))
         gt_boxes = np.concatenate(
             [loc, dims, rots[..., np.newaxis]], axis=1).astype(np.float32)
+        # gt_boxes = np.concatenate(
+        #     [loc, dims, alpha[..., np.newaxis]], axis=1).astype(np.float32)
         # gt_boxes = box_np_ops.box_camera_to_lidar(gt_boxes, rect, Trv2c)
         difficulty = annos["difficulty"]
         input_dict.update({

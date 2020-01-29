@@ -63,14 +63,25 @@ def draw_box_3d(image, corners, c=(0, 0, 255)):
                (corners[f[3], 0], corners[f[3], 1]), c, 1, lineType=cv2.LINE_AA)
   return image
 
-def unproject_2d_to_3d(pt_2d, depth, P):
-  # pts_2d: 2
-  # depth: 1
-  # P: 3 x 4
-  # return: 3
-  z = depth - P[2, 3]
-  x = (pt_2d[0] * depth - P[0, 3] - P[0, 2] * z) / P[0, 0]
-  y = (pt_2d[1] * depth - P[1, 3] - P[1, 2] * z) / P[1, 1]
+# def unproject_2d_to_3d(pt_2d, depth, P):
+#   # pts_2d: 2
+#   # depth: 1
+#   # P: 3 x 4
+#   # return: 3
+#   z = depth - P[2, 3]
+#   x = (pt_2d[0] * depth - P[0, 3] - P[0, 2] * z) / P[0, 0]
+#   y = (pt_2d[1] * depth - P[1, 3] - P[1, 2] * z) / P[1, 1]
+#   pt_3d = np.array([x, y, z], dtype=np.float32)
+#   return pt_3d
+
+def unproject_2d_to_3d(pt_2d, depth, phi_min, theta_min, voxel_size):
+  phi = pt_2d[0] * voxel_size[0] + phi_min
+  theta = pt_2d[1] * voxel_size[1] + theta_min
+
+  x = np.sin(theta) * np.cos(phi) * depth
+  y = np.sin(theta) * np.sin(theta) * depth
+  z = np.cos(theta) * depth
+
   pt_3d = np.array([x, y, z], dtype=np.float32)
   return pt_3d
 
@@ -103,13 +114,14 @@ def rot_y2alpha(rot_y, x, cx, fx):
     return alpha
 
 
-def ddd2locrot(center, alpha, dim, depth, calib):
+def ddd2locrot(center, alpha, dim, depth, meta, voxel_size):
   # single image
-  locations = unproject_2d_to_3d(center, depth, calib)
+  # locations = unproject_2d_to_3d(center, depth, meta['calib'])
+  locations = unproject_2d_to_3d(center, depth, meta['phi_min'], meta['theta_min'], voxel_size)
   locations[1] += dim[0] / 2
-  rotation_y = alpha2rot_y(alpha, center[0], calib[0, 2], calib[0, 0])
-  return locations, rotation_y
-
+  # rotation_y = alpha2rot_y(alpha, center[0], meta['calib'][0, 2], meta['calib'][0, 0])
+  # return locations, rotation_y
+  return locations, alpha
 def project_3d_bbox(location, dim, rotation_y, calib):
   box_3d = compute_box_3d(dim, location, rotation_y)
   box_2d = project_to_image(box_3d, calib)
