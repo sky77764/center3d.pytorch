@@ -353,14 +353,14 @@ def train(config_path,
                 ckpt_elasped_time = time.time() - ckpt_start_time
                 if ckpt_elasped_time > train_cfg.save_checkpoints_secs:
                     torchplus.train.save_models(model_dir, [net, optimizer],
-                                                net.get_global_step())
+                                                net.get_global_step(), max_to_keep=10)
                     ckpt_start_time = time.time()
             total_step_elapsed += steps
             torchplus.train.save_models(model_dir, [net, optimizer],
-                                        net.get_global_step())
+                                        net.get_global_step(), max_to_keep=10)
 
             # Ensure that all evaluation points are saved forever
-            torchplus.train.save_models(eval_checkpoint_dir, [net, optimizer], net.get_global_step(), max_to_keep=100)
+            torchplus.train.save_models(eval_checkpoint_dir, [net, optimizer], net.get_global_step(), max_to_keep=10)
 
             net.eval()
             result_path_step = result_path / f"step_{net.get_global_step()}"

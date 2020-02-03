@@ -79,7 +79,7 @@ def unproject_2d_to_3d(pt_2d, depth, phi_min, theta_min, voxel_size):
   theta = pt_2d[1] * voxel_size[1] + theta_min
 
   x = np.sin(theta) * np.cos(phi) * depth
-  y = np.sin(theta) * np.sin(theta) * depth
+  y = np.sin(theta) * np.sin(phi) * depth
   z = np.cos(theta) * depth
 
   pt_3d = np.array([x, y, z], dtype=np.float32)
@@ -118,10 +118,11 @@ def ddd2locrot(center, alpha, dim, depth, meta, voxel_size):
   # single image
   # locations = unproject_2d_to_3d(center, depth, meta['calib'])
   locations = unproject_2d_to_3d(center, depth, meta['phi_min'], meta['theta_min'], voxel_size)
-  locations[1] += dim[0] / 2
+  locations[2] -= dim[2] / 2 # TODO: check
   # rotation_y = alpha2rot_y(alpha, center[0], meta['calib'][0, 2], meta['calib'][0, 0])
   # return locations, rotation_y
   return locations, alpha
+
 def project_3d_bbox(location, dim, rotation_y, calib):
   box_3d = compute_box_3d(dim, location, rotation_y)
   box_2d = project_to_image(box_3d, calib)

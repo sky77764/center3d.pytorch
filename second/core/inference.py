@@ -18,8 +18,8 @@ class InferenceContext:
         self.built = False
 
     def get_inference_input_dict(self, info, points):
-        assert self.anchor_cache is not None
-        assert self.target_assigner is not None
+        # assert self.anchor_cache is not None
+        # assert self.target_assigner is not None
         assert self.voxel_generator is not None
         assert self.config is not None
         assert self.built is True

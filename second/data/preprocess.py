@@ -100,13 +100,14 @@ def prep_pointcloud(input_dict,
     exists.
     """
     points = input_dict["points"]
-    if training:
-        gt_boxes = input_dict["gt_boxes"]
-        gt_names = input_dict["gt_names"]
-        difficulty = input_dict["difficulty"]
-        group_ids = None
-        if use_group_id and "group_ids" in input_dict:
-            group_ids = input_dict["group_ids"]
+    # if training:
+    gt_boxes = input_dict["gt_boxes"]
+    gt_names = input_dict["gt_names"]
+    difficulty = input_dict["difficulty"]
+    group_ids = None
+    if use_group_id and "group_ids" in input_dict:
+        group_ids = input_dict["group_ids"]
+
     rect = input_dict["rect"]
     Trv2c = input_dict["Trv2c"]
     P2 = input_dict["P2"]
@@ -128,7 +129,7 @@ def prep_pointcloud(input_dict,
         image_shape = input_dict["image_shape"]
         points = box_np_ops.remove_outside_points(points, rect, Trv2c, P2,
                                                   image_shape)
-    if remove_environment is True and training:
+    if remove_environment is True:# and training:
         selected = kitti.keep_arrays_by_name(gt_names, class_names)
         gt_boxes = gt_boxes[selected]
         gt_names = gt_names[selected]
@@ -136,73 +137,74 @@ def prep_pointcloud(input_dict,
         if group_ids is not None:
             group_ids = group_ids[selected]
         points = prep.remove_points_outside_boxes(points, gt_boxes)
-    if training:
+    # if training:
         # print(gt_names)
-        selected = kitti.drop_arrays_by_name(gt_names, ["DontCare"])
-        gt_boxes = gt_boxes[selected]
-        gt_names = gt_names[selected]
-        difficulty = difficulty[selected]
+    selected = kitti.drop_arrays_by_name(gt_names, ["DontCare"])
+    gt_boxes = gt_boxes[selected]
+    gt_names = gt_names[selected]
+    difficulty = difficulty[selected]
+    if group_ids is not None:
+        group_ids = group_ids[selected]
+
+    gt_boxes = box_np_ops.box_camera_to_lidar(gt_boxes, rect, Trv2c)
+    if remove_unknown:
+        remove_mask = difficulty == -1
+        """
+        gt_boxes_remove = gt_boxes[remove_mask]
+        gt_boxes_remove[:, 3:6] += 0.25
+        points = prep.remove_points_in_boxes(points, gt_boxes_remove)
+        """
+        keep_mask = np.logical_not(remove_mask)
+        gt_boxes = gt_boxes[keep_mask]
+        gt_names = gt_names[keep_mask]
+        difficulty = difficulty[keep_mask]
         if group_ids is not None:
-            group_ids = group_ids[selected]
+            group_ids = group_ids[keep_mask]
+    gt_boxes_mask = np.array(
+        [n in class_names for n in gt_names], dtype=np.bool_)
+    if db_sampler is not None and training:
+        sampled_dict = db_sampler.sample_all(
+            root_path,
+            gt_boxes,
+            gt_names,
+            num_point_features,
+            random_crop,
+            gt_group_ids=group_ids,
+            rect=rect,
+            Trv2c=Trv2c,
+            P2=P2)
 
-        gt_boxes = box_np_ops.box_camera_to_lidar(gt_boxes, rect, Trv2c)
-        if remove_unknown:
-            remove_mask = difficulty == -1
-            """
-            gt_boxes_remove = gt_boxes[remove_mask]
-            gt_boxes_remove[:, 3:6] += 0.25
-            points = prep.remove_points_in_boxes(points, gt_boxes_remove)
-            """
-            keep_mask = np.logical_not(remove_mask)
-            gt_boxes = gt_boxes[keep_mask]
-            gt_names = gt_names[keep_mask]
-            difficulty = difficulty[keep_mask]
+        if sampled_dict is not None:
+            sampled_gt_names = sampled_dict["gt_names"]
+            sampled_gt_boxes = sampled_dict["gt_boxes"]
+            sampled_points = sampled_dict["points"]
+            sampled_gt_masks = sampled_dict["gt_masks"]
+            # gt_names = gt_names[gt_boxes_mask].tolist()
+            gt_names = np.concatenate([gt_names, sampled_gt_names], axis=0)
+            # gt_names += [s["name"] for s in sampled]
+            gt_boxes = np.concatenate([gt_boxes, sampled_gt_boxes])
+            gt_boxes_mask = np.concatenate(
+                [gt_boxes_mask, sampled_gt_masks], axis=0)
             if group_ids is not None:
-                group_ids = group_ids[keep_mask]
-        gt_boxes_mask = np.array(
-            [n in class_names for n in gt_names], dtype=np.bool_)
-        if db_sampler is not None:
-            sampled_dict = db_sampler.sample_all(
-                root_path,
-                gt_boxes,
-                gt_names,
-                num_point_features,
-                random_crop,
-                gt_group_ids=group_ids,
-                rect=rect,
-                Trv2c=Trv2c,
-                P2=P2)
+                sampled_group_ids = sampled_dict["group_ids"]
+                group_ids = np.concatenate([group_ids, sampled_group_ids])
 
-            if sampled_dict is not None:
-                sampled_gt_names = sampled_dict["gt_names"]
-                sampled_gt_boxes = sampled_dict["gt_boxes"]
-                sampled_points = sampled_dict["points"]
-                sampled_gt_masks = sampled_dict["gt_masks"]
-                # gt_names = gt_names[gt_boxes_mask].tolist()
-                gt_names = np.concatenate([gt_names, sampled_gt_names], axis=0)
-                # gt_names += [s["name"] for s in sampled]
-                gt_boxes = np.concatenate([gt_boxes, sampled_gt_boxes])
-                gt_boxes_mask = np.concatenate(
-                    [gt_boxes_mask, sampled_gt_masks], axis=0)
-                if group_ids is not None:
-                    sampled_group_ids = sampled_dict["group_ids"]
-                    group_ids = np.concatenate([group_ids, sampled_group_ids])
+            if remove_points_after_sample:
+                points = prep.remove_points_in_boxes(
+                    points, sampled_gt_boxes)
 
-                if remove_points_after_sample:
-                    points = prep.remove_points_in_boxes(
-                        points, sampled_gt_boxes)
-
-                points = np.concatenate([sampled_points, points], axis=0)
-        # unlabeled_mask = np.zeros((gt_boxes.shape[0], ), dtype=np.bool_)
-        if without_reflectivity:
-            used_point_axes = list(range(num_point_features))
-            used_point_axes.pop(3)
-            points = points[:, used_point_axes]
-        # pc_range = voxel_generator.point_cloud_range
-        # bev_only = False
-        # if bev_only:  # set z and h to limits
-        #     gt_boxes[:, 2] = pc_range[2]
-        #     gt_boxes[:, 5] = pc_range[5] - pc_range[2]
+            points = np.concatenate([sampled_points, points], axis=0)
+    # unlabeled_mask = np.zeros((gt_boxes.shape[0], ), dtype=np.bool_)
+    if without_reflectivity and training:
+        used_point_axes = list(range(num_point_features))
+        used_point_axes.pop(3)
+        points = points[:, used_point_axes]
+    # pc_range = voxel_generator.point_cloud_range
+    # bev_only = False
+    # if bev_only:  # set z and h to limits
+    #     gt_boxes[:, 2] = pc_range[2]
+    #     gt_boxes[:, 5] = pc_range[5] - pc_range[2]
+    if training:
         prep.noise_per_object_v3_(
             gt_boxes,
             points,
@@ -212,34 +214,35 @@ def prep_pointcloud(input_dict,
             global_random_rot_range=global_random_rot_range,
             group_ids=group_ids,
             num_try=100)
-        # should remove unrelated objects after noise per object
-        gt_boxes = gt_boxes[gt_boxes_mask]
-        gt_names = gt_names[gt_boxes_mask]
-        if group_ids is not None:
-            group_ids = group_ids[gt_boxes_mask]
-        gt_classes = np.array(
-            [class_names.index(n) + 1 for n in gt_names], dtype=np.int32)
+    # should remove unrelated objects after noise per object
+    gt_boxes = gt_boxes[gt_boxes_mask]
+    gt_names = gt_names[gt_boxes_mask]
+    if group_ids is not None:
+        group_ids = group_ids[gt_boxes_mask]
+    gt_classes = np.array(
+        [class_names.index(n) + 1 for n in gt_names], dtype=np.int32)
 
+    if training:
         gt_boxes, points = prep.random_flip(gt_boxes, points)
-        # gt_boxes, points = prep.global_rotation(
-        #     gt_boxes, points, rotation=global_rotation_noise)
-        # gt_boxes, points = prep.global_scaling_v2(gt_boxes, points,
-        #                                           *global_scaling_noise)
+    # gt_boxes, points = prep.global_rotation(
+    #     gt_boxes, points, rotation=global_rotation_noise)
+    # gt_boxes, points = prep.global_scaling_v2(gt_boxes, points,
+    #                                           *global_scaling_noise)
 
-        # Global translation
-        # gt_boxes, points = prep.global_translate(gt_boxes, points, global_loc_noise_std)
+    # Global translation
+    # gt_boxes, points = prep.global_translate(gt_boxes, points, global_loc_noise_std)
 
-        # bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
-        bv_range = [0, -40, 70.4, 40]
-        mask = prep.filter_gt_box_outside_range(gt_boxes, bv_range)
-        gt_boxes = gt_boxes[mask]
-        gt_classes = gt_classes[mask]
-        if group_ids is not None:
-            group_ids = group_ids[mask]
+    # bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
+    bv_range = [0, -40, 70.4, 40]
+    mask = prep.filter_gt_box_outside_range(gt_boxes, bv_range)
+    gt_boxes = gt_boxes[mask]
+    gt_classes = gt_classes[mask]
+    if group_ids is not None:
+        group_ids = group_ids[mask]
 
-        # limit rad to [-pi, pi]
-        gt_boxes[:, 6] = box_np_ops.limit_period(
-            gt_boxes[:, 6], offset=0.5, period=2 * np.pi)
+    # limit rad to [-pi, pi]
+    gt_boxes[:, 6] = box_np_ops.limit_period(
+        gt_boxes[:, 6], offset=0.5, period=2 * np.pi)
 
     if shuffle_points:
         # shuffle is a little slow.
@@ -258,6 +261,20 @@ def prep_pointcloud(input_dict,
     s = np.array([image_w, image_h], dtype=np.int32)
     meta = {'c': c, 's': s, 'calib': P2, 'phi_min': phi_min, 'theta_min': theta_min}
 
+    max_objs = 200
+    num_objs = min(gt_boxes.shape[0], max_objs)
+
+    box_np_ops.change_box3d_center_(gt_boxes, src=[0.5, 0.5, 0], dst=[0.5, 0.5, 0.5])
+    spherical_gt_boxes = np.zeros((max_objs, gt_boxes.shape[1]))
+    spherical_gt_boxes[:num_objs, :] = gt_boxes[:num_objs, :]
+    spherical_gt_boxes[:num_objs, :] = convert_to_spherical_coor(gt_boxes[:num_objs, :])
+    spherical_gt_boxes[:num_objs, 0] -= phi_min
+    spherical_gt_boxes[:num_objs, 1] -= theta_min
+    spherical_gt_boxes[:num_objs, 0] /= voxel_size[0]
+    spherical_gt_boxes[:num_objs, 1] /= voxel_size[1]
+
+    spherical_gt_boxes, num_objs = filter_outside_range(spherical_gt_boxes, num_objs, grid_size)
+
     example = {
         'voxels': voxels,
         'num_points': num_points,
@@ -265,7 +282,8 @@ def prep_pointcloud(input_dict,
         "num_voxels": np.array([voxels.shape[0]], dtype=np.int64),
         'voxel_size': voxel_size,
         'pc_range': pc_range,
-        'meta': meta
+        'meta': meta,
+        'spherical_gt_boxes': spherical_gt_boxes
     }
 
     example.update({
@@ -275,19 +293,7 @@ def prep_pointcloud(input_dict,
     })
 
     if training:
-        max_objs = 200
-        num_objs = min(gt_boxes.shape[0], max_objs)
 
-        box_np_ops.change_box3d_center_(gt_boxes, src=[0.5, 0.5, 0], dst=[0.5, 0.5, 0.5])
-        spherical_gt_boxes = np.zeros((max_objs, gt_boxes.shape[1]))
-        spherical_gt_boxes[:num_objs, :] = gt_boxes[:num_objs, :]
-        spherical_gt_boxes[:num_objs, :] = convert_to_spherical_coor(gt_boxes[:num_objs, :])
-        spherical_gt_boxes[:num_objs, 0] -= phi_min
-        spherical_gt_boxes[:num_objs, 1] -= theta_min
-        spherical_gt_boxes[:num_objs, 0] /= voxel_size[0]
-        spherical_gt_boxes[:num_objs, 1] /= voxel_size[1]
-
-        spherical_gt_boxes, num_objs = filter_outside_range(spherical_gt_boxes, num_objs, grid_size)
 
         hm = np.zeros(
             (num_classes, image_h, image_w), dtype=np.float32)

@@ -25,6 +25,7 @@ from second.pytorch.models.dlav0 import get_pose_net
 from second.pytorch.models.losses import FocalLoss, L1Loss, BinRotLoss
 from second.pytorch.models.decode import ddd_decode
 from second.utils.post_process import ddd_post_process
+from second.utils.debugger import Debugger
 
 def _get_pos_neg_loss(cls_loss, labels):
     # cls_loss: [N, num_anchors, num_class]
@@ -637,8 +638,9 @@ class VoxelNet(nn.Module):
             else:
                 num_rpn_input_filters = int(middle_num_filters_d2[-1] * 2)
 
+        self._down_ratio = 1
         heads = {'hm':num_class, 'dep':1, 'rot':8, 'dim':3, 'reg':2}
-        self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256, down_ratio=1)
+        self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256, down_ratio=self._down_ratio)
 
         # rpn_class_dict = {
         #     "RPN": RPN,
@@ -676,7 +678,9 @@ class VoxelNet(nn.Module):
         self.rpn_total_loss = metrics.Scalar()
         self.register_buffer("global_step", torch.LongTensor(1).zero_())
 
-        self.debug_mode = False
+        self.debug_mode = True
+        if self.debug_mode:
+            self.debugger = Debugger(theme='black', num_classes=self._num_class, down_ratio=self._down_ratio)
 
     def update_global_step(self):
         self.global_step += 1
@@ -684,8 +688,7 @@ class VoxelNet(nn.Module):
     def get_global_step(self):
         return int(self.global_step.cpu().numpy()[0])
 
-    def show_fv_map(self, voxels, coords, batch_size, hm=None, output=None, name=''):
-        import cv2
+    def get_fvmap(self, voxels, coords, batch_size):
         voxels = torch.mean(voxels, dim=1, keepdim=True)
         voxel_features = voxels.squeeze()
 
@@ -717,28 +720,26 @@ class VoxelNet(nn.Module):
         batch_canvas = batch_canvas.view(batch_size, nchannels, ny, nx)
 
         spherical_points = batch_canvas.cpu().numpy()
-        for i in range(batch_size):
-            fvmap = np.transpose(spherical_points[i], (1, 2, 0))
+        return spherical_points
 
-            fvmap = fvmap[:, :, 2]
+    def make_input_img(self, voxels, coords, batch_size):
+        spherical_points = self.get_fvmap(voxels, coords, batch_size)
+
+        for i in range(batch_size):
+            fvmap = np.expand_dims(spherical_points[i][2, :, :], axis=0)
             fvmap[fvmap != 0] = 1 - fvmap[fvmap != 0]
 
-            if not hm is None:
-                fvmap += hm[i,0]
+            colormap = self.debugger.gen_colormap(fvmap)
+            self.debugger.add_img(colormap, img_id='input_' + str(i))
 
-            cv2.imshow('fvmap'+str(i), fvmap)
-        if output is not None:
-            self.show_output(output, name=name)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+    def make_hm_img(self, hm, name=None):
+        for i in range(hm.shape[0]):
+            colormap = self.debugger.gen_colormap(hm[i].detach().cpu().numpy())
+            if name is None:
+                self.debugger.add_img(colormap, img_id='pred_hm_'+str(i))
+            else:
+                self.debugger.add_img(colormap, img_id=name + '_' + str(i))
 
-    def show_output(self, output, name=''):
-        import cv2
-        batch_size = output.shape[0]
-
-        for i in range(batch_size):
-            fvmap = np.transpose(output[i].detach().cpu().numpy(), (1, 2, 0))
-            cv2.imshow(name+' '+str(i), fvmap)
 
 
     def forward(self, example):
@@ -769,9 +770,9 @@ class VoxelNet(nn.Module):
         # cls_preds = preds_dict["cls_preds"]
         self._total_forward_time += time.time() - t
         if self.training:
-            if self.debug_mode:
-                hm = example['hm']
-                self.show_fv_map(voxels, coors, batch_size_dev, hm=hm)
+            # if self.debug_mode:
+            #     hm = example['hm']
+            #     self.show_fv_map(voxels, coors, batch_size_dev, hm=hm)
 
             # labels = example['labels']
             output = preds_dict
@@ -884,14 +885,24 @@ class VoxelNet(nn.Module):
         # wh = output['wh'] if self.opt.reg_bbox else None
         reg = output['reg']
         # torch.cuda.synchronize()
-        if self.debug_mode:
-            self.show_fv_map(example['voxels'], example['coordinates'], batch_size, output=output['hm'], name='heatmap')
+
+        score_thresh = 0.1
+
         dets = ddd_decode(output['hm'], output['rot'], output['dep'],
                           output['dim'], reg=reg, K=40)
+        if self.debug_mode:
+            self.make_input_img(example['voxels'], example['coordinates'], batch_size)
+            # self.make_hm_img(output['hm'])
+            # self.make_hm_img(hm_nms, name='pred_hm_nms')
+
+            # for i in range(batch_size):
+            #     pos_mask = dets[i, :, 2] > score_thresh
+            #     self.debugger.add_points(dets[i,:,:2][pos_mask].view(1, -1, 2).detach().cpu().numpy().astype(np.int32), img_id='input_'+str(i))
+
         dets = self.post_process(dets, example['meta'], example['voxel_size'])
 
         predictions_dicts = []
-        score_thresh = 0.05
+
         selected_boxes = None
         for i in range(len(dets)):
             for cls_id, det in dets[i].items():
@@ -914,15 +925,24 @@ class VoxelNet(nn.Module):
                     final_box_preds_camera = box_torch_ops.box_lidar_to_camera(
                         final_box_preds, batch_rect[i], batch_Trv2c[i])
 
-                    locs = final_box_preds_camera[:, :3]
-                    dims = final_box_preds_camera[:, 3:6]
-                    angles = final_box_preds_camera[:, 6]
-                    camera_box_origin = [0.5, 1.0, 0.5]
+                    # locs = final_box_preds_camera[:, :3]
+                    # dims = final_box_preds_camera[:, 3:6]
+                    # angles = final_box_preds_camera[:, 6]
+                    # camera_box_origin = [0.5, 1.0, 0.5]
+
+                    locs = final_box_preds[:, 3:6]
+                    dims = final_box_preds[:, 0:3]
+                    angles = final_box_preds[:, 6]
+                    camera_box_origin = [0.5, 0.5, 0]
 
                     box_corners = box_torch_ops.center_to_corner_box3d(
-                        locs, dims, angles, camera_box_origin, axis=1)
+                        locs, dims, angles, camera_box_origin, axis=2)
+                    # box_corners_in_image = box_torch_ops.project_to_image(
+                    #     box_corners, batch_P2[i])
                     box_corners_in_image = box_torch_ops.project_to_image(
-                        box_corners, batch_P2[i])
+                        box_corners, example['voxel_size'][i], example['meta'][i])
+                    box_centers_in_image = box_torch_ops.project_to_image(
+                        locs, example['voxel_size'][i], example['meta'][i])
 
                     # box_corners_in_image: [N, 8, 2]
                     minxy = torch.min(box_corners_in_image, dim=1)[0]
@@ -937,6 +957,8 @@ class VoxelNet(nn.Module):
                         "scores": final_scores,
                         "label_preds": label_preds,
                         "image_idx": img_idx,
+                        "box_corners_in_image": box_corners_in_image,
+                        "box_centers_in_image": box_centers_in_image
                     }
                 else:
                     predictions_dict = {
@@ -946,9 +968,57 @@ class VoxelNet(nn.Module):
                         "scores": None,
                         "label_preds": None,
                         "image_idx": img_idx,
+                        "box_corners_in_image": None,
+                        "box_centers_in_image": None
                     }
                 predictions_dicts.append(predictions_dict)
         self._total_postprocess_time += time.time() - t
+
+        if self.debug_mode:
+            spherical_gt_boxes = example['spherical_gt_boxes']
+            for i in range(spherical_gt_boxes.shape[0]):
+                num_obj = 0
+                for j in range(spherical_gt_boxes.shape[1]):
+                    if np.all(spherical_gt_boxes[i, j, :] == 0):
+                        num_obj = j
+                        break
+                if num_obj == 0:
+                    continue
+                spherical_gt_box = torch.from_numpy(spherical_gt_boxes[i, :num_obj, :])
+
+                phi = spherical_gt_box[:, 0] * example['voxel_size'][i][0] + example['meta'][i]['phi_min']
+                theta = spherical_gt_box[:, 1] * example['voxel_size'][i][1] + example['meta'][i]['theta_min']
+                depth = spherical_gt_box[:, 2]
+                spherical_gt_box[:, 0] = torch.sin(theta) * torch.cos(phi) * depth
+                spherical_gt_box[:, 1] = torch.sin(theta) * torch.sin(phi) * depth
+                spherical_gt_box[:, 2] = (torch.cos(theta) * depth) - (spherical_gt_box[:, 5] / 2)
+
+                locs = spherical_gt_box[:, 0:3]
+                dims = spherical_gt_box[:, 3:6]
+                angles = spherical_gt_box[:, 6]
+                camera_box_origin = [0.5, 0.5, 0]
+
+                box_corners = box_torch_ops.center_to_corner_box3d(
+                    locs, dims, angles, camera_box_origin, axis=2)
+                box_corners_in_image = box_torch_ops.project_to_image(
+                    box_corners, example['voxel_size'][i], example['meta'][i])
+                box_centers_in_image = box_torch_ops.project_to_image(
+                    locs, example['voxel_size'][i], example['meta'][i])
+
+                for j in range(num_obj):
+                    self.debugger.add_3d_detection2(box_corners_in_image[j], c= [0,255, 0], img_id='input_' + str(i))
+                    self.debugger.add_point(box_centers_in_image[j], c= (0, 255, 0), img_id='input_' + str(i))
+
+
+            for i, pred_dict in enumerate(predictions_dicts):
+                if pred_dict['bbox'] is not None:
+                    for j, bbox in enumerate(pred_dict['bbox']):
+                        if pred_dict['scores'][j] > score_thresh:
+                            # self.debugger.add_rect((bbox[0], bbox[1]), (bbox[2], bbox[3]), (255, 0, 0), img_id='input_'+str(i))
+                            self.debugger.add_3d_detection2(pred_dict['box_corners_in_image'][j], c= [255, 0, 0], img_id='input_'+str(i))
+                            self.debugger.add_point(pred_dict['box_centers_in_image'][j], c= (255, 0, 0), img_id='input_'+str(i))
+
+            self.debugger.show_all_imgs(pause=True)
 
         return predictions_dicts
 
