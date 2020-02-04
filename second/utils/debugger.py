@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import numpy as np
 import cv2
+import os
 from .ddd_utils import compute_box_3d, project_to_image, draw_box_3d
 
 
@@ -186,6 +187,9 @@ class Debugger(object):
                                                points[i][j][1] * self.down_ratio),
                            2, (0, 0, 255), -1)
 
+    def remove_all_imgs(self):
+        self.imgs = {}
+
     def show_all_imgs(self, pause=False, time=0):
         if not self.ipynb:
             for i, v in self.imgs.items():
@@ -193,6 +197,7 @@ class Debugger(object):
             if cv2.waitKey(0 if pause else 1) == 27:
                 import sys
                 sys.exit(0)
+            cv2.destroyAllWindows()
         else:
             self.ax = None
             nImgs = len(self.imgs)
@@ -211,6 +216,9 @@ class Debugger(object):
         cv2.imwrite(path + '{}.png'.format(imgId), self.imgs[imgId])
 
     def save_all_imgs(self, path='./cache/debug/', prefix='', genID=False):
+        if not os.path.exists(path):
+            os.makedirs(path)
+
         if genID:
             try:
                 idx = int(np.loadtxt(path + '/id.txt'))
@@ -220,6 +228,7 @@ class Debugger(object):
             np.savetxt(path + '/id.txt', np.ones(1) * (idx + 1), fmt='%d')
         for i, v in self.imgs.items():
             cv2.imwrite(path + '/{}{}.png'.format(prefix, i), v)
+
 
     def remove_side(self, img_id, img):
         if not (img_id in self.imgs):

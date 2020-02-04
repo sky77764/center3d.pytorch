@@ -254,20 +254,8 @@ def train(config_path,
                 off_loss = ret_dict['off_loss']
 
 
-                # box_preds = ret_dict["box_preds"]
-                # cls_preds = ret_dict["cls_preds"]
-                # loss = ret_dict["loss"].mean()
-                # cls_loss_reduced = ret_dict["cls_loss_reduced"].mean()
-                # loc_loss_reduced = ret_dict["loc_loss_reduced"].mean()
-                # cls_pos_loss = ret_dict["cls_pos_loss"]
-                # cls_neg_loss = ret_dict["cls_neg_loss"]
-                # loc_loss = ret_dict["loc_loss"]
-                # cls_loss = ret_dict["cls_loss"]
-                # dir_loss_reduced = ret_dict["dir_loss_reduced"]
-                # cared = ret_dict["cared"]
-                # labels = example_torch["labels"]
-                # if train_cfg.enable_mixed_precision:
-                #     loss *= loss_scale
+                if train_cfg.enable_mixed_precision:
+                    loss *= loss_scale
 
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(net.parameters(), 10.0)
@@ -415,10 +403,12 @@ def train(config_path,
             for i, class_name in enumerate(class_names):
                 writer.add_scalar('bev_ap:{}'.format(class_name), mAPbev[i, 1, 0], global_step)
                 writer.add_scalar('3d_ap:{}'.format(class_name), mAP3d[i, 1, 0], global_step)
-                writer.add_scalar('aos_ap:{}'.format(class_name), mAPaos[i, 1, 0], global_step)
+                if mAPaos is not None:
+                    writer.add_scalar('aos_ap:{}'.format(class_name), mAPaos[i, 1, 0], global_step)
             writer.add_scalar('bev_map', np.mean(mAPbev[:, 1, 0]), global_step)
             writer.add_scalar('3d_map', np.mean(mAP3d[:, 1, 0]), global_step)
-            writer.add_scalar('aos_map', np.mean(mAPaos[:, 1, 0]), global_step)
+            if mAPaos is not None:
+                writer.add_scalar('aos_map', np.mean(mAPaos[:, 1, 0]), global_step)
 
             result = get_coco_eval_result(gt_annos, dt_annos, class_names)
             print(result, file=logf)

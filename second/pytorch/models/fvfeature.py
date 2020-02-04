@@ -118,7 +118,8 @@ class ForwardViewFeatureNet(nn.Module):
 
     def forward(self, features, num_voxels, coors, batch_size):
         # features = torch.mean(features, dim=1, keepdim=True)
-        # return features.squeeze()
+        features = features[:, 0, :]
+        return features.squeeze()
 
         # Find distance of x, y, and z from cluster center
         points_mean = features[:, :, :3].sum(dim=1, keepdim=True) / num_voxels.type_as(features).view(-1, 1, 1)
@@ -175,8 +176,8 @@ class ForwardViewScatter(nn.Module):
         self.output_shape = output_shape
         self.ny = output_shape[2]
         self.nx = output_shape[3]
-        self.nchannels = num_input_features
-        # self.nchannels = 4
+        # self.nchannels = num_input_features
+        self.nchannels = 4
 
 
     def forward(self, voxel_features, coords, batch_size):

@@ -227,8 +227,13 @@ class DLA(nn.Module):
         self.channels = channels
         self.return_levels = return_levels
         self.num_classes = num_classes
+        # self.base_layer = nn.Sequential(
+        #     nn.Conv2d(64, channels[0], kernel_size=7, stride=1,
+        #               padding=3, bias=False),
+        #     BatchNorm(channels[0]),
+        #     nn.ReLU(inplace=True))
         self.base_layer = nn.Sequential(
-            nn.Conv2d(64, channels[0], kernel_size=7, stride=1,
+            nn.Conv2d(4, channels[0], kernel_size=7, stride=1,
                       padding=3, bias=False),
             BatchNorm(channels[0]),
             nn.ReLU(inplace=True))
@@ -318,6 +323,9 @@ class DLA(nn.Module):
 
 
 def dla34(pretrained, **kwargs):  # DLA-34
+    # model = DLA([1, 1, 1, 2, 2, 1],
+    #             [64, 64, 64, 128, 256, 512],
+    #             block=BasicBlock, **kwargs)
     model = DLA([1, 1, 1, 2, 2, 1],
                 [64, 64, 64, 128, 256, 512],
                 block=BasicBlock, **kwargs)
