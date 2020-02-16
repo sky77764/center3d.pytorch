@@ -635,8 +635,8 @@ def evaluate(config_path,
     dt_annos = []
     global_set = None
     print("Generate output labels...")
-    bar = ProgressBar()
-    bar.start(len(eval_dataset) // input_cfg.batch_size + 1)
+    # bar = ProgressBar()
+    # bar.start(len(eval_dataset) // input_cfg.batch_size + 1)
 
     for example in iter(eval_dataloader):
         example = example_convert_to_torch(example, float_dtype)
@@ -647,7 +647,7 @@ def evaluate(config_path,
         else:
             _predict_kitti_to_file(net, example, result_path_step, class_names,
                                    center_limit_range, model_cfg.lidar_input)
-        bar.print_bar()
+        # bar.print_bar()
 
     sec_per_example = len(eval_dataset) / (time.time() - t)
     print(f'generate label finished({sec_per_example:.2f}/s). start eval:')

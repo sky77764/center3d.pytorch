@@ -5,7 +5,8 @@ import numpy as np
 import math
 
 @numba.jit(nopython=True)
-def _spherical_points_to_voxel_reverse_kernel(points,
+def _spherical_points_to_voxel_reverse_kernel(spherical_points, 
+                                    points,
                                     grid_size,
                                     coors_range,
                                     num_points_per_voxel,
@@ -17,8 +18,8 @@ def _spherical_points_to_voxel_reverse_kernel(points,
     # put all computations to one loop.
     # we shouldn't create large array in main jit code, otherwise
     # reduce performance
-    N = points.shape[0]
-    # ndim = points.shape[1] - 1
+    N = spherical_points.shape[0]
+    # ndim = spherical_points.shape[1] - 1
     ndim = 3
     ndim_minus_1 = ndim - 1
 
@@ -27,8 +28,8 @@ def _spherical_points_to_voxel_reverse_kernel(points,
     phi_min, theta_min = coors_range[0], coors_range[1]
     phi_range, theta_range = coors_range[3], coors_range[4]
     #
-    # phi_max, phi_min = points[:, 0].max(), points[:, 0].min()
-    # theta_max, theta_min = points[:, 1].max(), points[:, 1].min()
+    # phi_max, phi_min = spherical_points[:, 0].max(), spherical_points[:, 0].min()
+    # theta_max, theta_min = spherical_points[:, 1].max(), spherical_points[:, 1].min()
     # phi_range = phi_max - phi_min
     # theta_range = theta_max - theta_min
 
@@ -39,11 +40,11 @@ def _spherical_points_to_voxel_reverse_kernel(points,
         failed = False
         for j in range(ndim):
             if j == 0:
-                c = np.floor((points[i, j] - phi_min) / phi_range * grid_size[0])
-                # c = np.floor((points[i, j] - theta_min) / theta_range * grid_size[0])
+                c = np.floor((spherical_points[i, j] - phi_min) / phi_range * grid_size[0])
+                # c = np.floor((spherical_points[i, j] - theta_min) / theta_range * grid_size[0])
             elif j == 1:
-                c = np.floor((points[i, j] - theta_min) / theta_range * grid_size[1])
-                # c = np.floor((points[i, j] - phi_min) / phi_range * grid_size[1])
+                c = np.floor((spherical_points[i, j] - theta_min) / theta_range * grid_size[1])
+                # c = np.floor((spherical_points[i, j] - phi_min) / phi_range * grid_size[1])
             else:
                 c = 0
 
@@ -64,7 +65,7 @@ def _spherical_points_to_voxel_reverse_kernel(points,
             coors[voxelidx] = coor
         num = num_points_per_voxel[voxelidx]
         if num < max_points:
-            voxels[voxelidx, num] = points[i]
+            voxels[voxelidx, num] = np.concatenate((points[i, :3], spherical_points[i, 2:]), axis=0)
             num_points_per_voxel[voxelidx] += 1
     # sum = num_points_per_voxel.sum()
     return voxel_num
@@ -285,12 +286,12 @@ def points_to_voxel(points,
     num_points_per_voxel = np.zeros(shape=(max_voxels, ), dtype=np.int32)
     coor_to_voxelidx = -np.ones(shape=voxelmap_shape, dtype=np.int32)
     voxels = np.zeros(
-        shape=(max_voxels, max_points, points.shape[-1]), dtype=points.dtype)
+        shape=(max_voxels, max_points, 5), dtype=points.dtype)
     coors = np.zeros(shape=(max_voxels, 3), dtype=np.int32)
     if reverse_index:
         if spherical_coor:
             voxel_num = _spherical_points_to_voxel_reverse_kernel(
-                spherical_points, grid_size, coors_range, num_points_per_voxel,
+                spherical_points, points, grid_size, coors_range, num_points_per_voxel,
                 coor_to_voxelidx, voxels, coors, max_points, max_voxels)
         else:
             voxel_num = _points_to_voxel_reverse_kernel(

@@ -621,7 +621,8 @@ class VoxelNet(nn.Module):
         self.rpn_total_loss = metrics.Scalar()
         self.register_buffer("global_step", torch.LongTensor(1).zero_())
 
-        self.debug_mode = False
+        self.debug_mode = True
+        self.save_imgs = False
         if self.debug_mode:
             self.debugger = Debugger(theme='black', num_classes=self._num_class, down_ratio=self._down_ratio)
 
@@ -632,10 +633,12 @@ class VoxelNet(nn.Module):
         return int(self.global_step.cpu().numpy()[0])
 
     def get_fvmap(self, voxels, coords, batch_size):
-        voxels = torch.mean(voxels, dim=1, keepdim=True)
+        # voxels = torch.mean(voxels, dim=1, keepdim=True)
+        voxels = voxels[:, 0, :]
         voxel_features = voxels.squeeze()
+        channel_idx = 3
 
-        nx, ny, nchannels = self._output_shape[3], self._output_shape[2], 4
+        nx, ny, nchannels = self._output_shape[3], self._output_shape[2], 1
         batch_canvas = []
         for batch_itt in range(batch_size):
             # Create the canvas for this sample
@@ -651,7 +654,7 @@ class VoxelNet(nn.Module):
             voxels = voxels.t()
 
             # Now scatter the blob back to the canvas.
-            canvas[:, indices] = voxels
+            canvas[:, indices] = voxels[channel_idx, :]
 
             # Append to a list for later stacking.
             batch_canvas.append(canvas)
@@ -669,8 +672,12 @@ class VoxelNet(nn.Module):
         spherical_points = self.get_fvmap(voxels, coords, batch_size)
 
         for i in range(batch_size):
-            fvmap = np.expand_dims(spherical_points[i][2, :, :], axis=0)
-            fvmap[fvmap != 0] = 1 - fvmap[fvmap != 0]
+            # fvmap = np.expand_dims(spherical_points[i], axis=0)
+            fvmap = spherical_points[i]
+            mask = fvmap != 0
+            fvmap[mask] -= fvmap[mask].min()
+            fvmap[mask] /= fvmap[mask].max()
+            fvmap[mask] = 1 - fvmap[mask]
 
             colormap = self.debugger.gen_colormap(fvmap)
             self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]))
@@ -803,19 +810,19 @@ class VoxelNet(nn.Module):
                     final_box_preds_camera = box_torch_ops.box_lidar_to_camera(
                         final_box_preds, batch_rect[i], batch_Trv2c[i])
 
-                    locs = final_box_preds_camera[:, :3]
-                    dims = final_box_preds_camera[:, 3:6]
-                    angles = final_box_preds_camera[:, 6]
-                    camera_box_origin = [0.5, 1.0, 0.5]
-                    box_corners = box_torch_ops.center_to_corner_box3d(
-                        locs, dims, angles, camera_box_origin, axis=1)
-
-                    # locs = final_box_preds[:, 3:6]
-                    # dims = final_box_preds[:, 0:3]
-                    # angles = final_box_preds[:, 6]
-                    # camera_box_origin = [0.5, 0.5, 0]
+                    # locs = final_box_preds_camera[:, :3]
+                    # dims = final_box_preds_camera[:, 3:6]
+                    # angles = final_box_preds_camera[:, 6]
+                    # camera_box_origin = [0.5, 1.0, 0.5]
                     # box_corners = box_torch_ops.center_to_corner_box3d(
-                    #     locs, dims, angles, camera_box_origin, axis=2)
+                    #     locs, dims, angles, camera_box_origin, axis=1)
+
+                    locs = final_box_preds[:, 3:6]
+                    dims = final_box_preds[:, 0:3]
+                    angles = final_box_preds[:, 6]
+                    camera_box_origin = [0.5, 0.5, 0]
+                    box_corners = box_torch_ops.center_to_corner_box3d(
+                        locs, dims, angles, camera_box_origin, axis=2)
 
                     # box_corners_in_image = box_torch_ops.project_to_image(
                     #     box_corners, batch_P2[i])
@@ -898,8 +905,11 @@ class VoxelNet(nn.Module):
                             self.debugger.add_3d_detection2(pred_dict['box_corners_in_image'][j], c= [255, 0, 0], img_id=str(batch_imgidx[i]))
                             self.debugger.add_point(pred_dict['box_centers_in_image'][j], c= (255, 0, 0), img_id=str(batch_imgidx[i]))
 
-            # self.debugger.show_all_imgs(pause=True)
-            # self.debugger.save_all_imgs(path='./output/visualize/cache/')
+            if self.save_imgs:
+                self.debugger.save_all_imgs(path='./output/visualize/cache/')
+            else:
+                self.debugger.show_all_imgs(pause=True)
+
             self.debugger.remove_all_imgs()
 
         return predictions_dicts
