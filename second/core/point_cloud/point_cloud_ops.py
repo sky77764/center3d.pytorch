@@ -4,17 +4,19 @@ import numba
 import numpy as np
 import math
 
-@numba.jit(nopython=True)
+# @numba.jit(nopython=True)
 def _spherical_points_to_voxel_reverse_kernel(spherical_points, 
                                     points,
                                     grid_size,
                                     coors_range,
+                                    cartesian_coors_range,
                                     num_points_per_voxel,
                                     coor_to_voxelidx,
                                     voxels,
                                     coors,
                                     max_points=35,
-                                    max_voxels=20000):
+                                    max_voxels=20000,
+                                    RGB_embedding=None):
     # put all computations to one loop.
     # we shouldn't create large array in main jit code, otherwise
     # reduce performance
@@ -27,6 +29,16 @@ def _spherical_points_to_voxel_reverse_kernel(spherical_points,
     # theta_range, phi_range = coors_range[3], coors_range[4]
     phi_min, theta_min = coors_range[0], coors_range[1]
     phi_range, theta_range = coors_range[3], coors_range[4]
+    distance_max = coors_range[5]
+
+    x_min, y_min, z_min = cartesian_coors_range[0], cartesian_coors_range[1], cartesian_coors_range[2]
+    x_max, y_max, z_max = cartesian_coors_range[3], cartesian_coors_range[4], cartesian_coors_range[5]
+
+    # normalize
+    points[:, 0] = (points[:, 0] - x_min) / (x_max - x_min)
+    points[:, 1] = (points[:, 1] - y_min) / (y_max - y_min)
+    points[:, 2] = (points[:, 2] - z_min) / (z_max - z_min)
+
     #
     # phi_max, phi_min = spherical_points[:, 0].max(), spherical_points[:, 0].min()
     # theta_max, theta_min = spherical_points[:, 1].max(), spherical_points[:, 1].min()
@@ -65,7 +77,11 @@ def _spherical_points_to_voxel_reverse_kernel(spherical_points,
             coors[voxelidx] = coor
         num = num_points_per_voxel[voxelidx]
         if num < max_points:
-            voxels[voxelidx, num] = np.concatenate((points[i, :3], spherical_points[i, 2:]), axis=0)
+            spherical_points[i, 2] = spherical_points[i, 2] / distance_max
+            if RGB_embedding is not None:
+                voxels[voxelidx, num] = np.concatenate((points[i, :3], spherical_points[i, 2:], RGB_embedding[i, :]/255.0), axis=0)
+            else:
+                voxels[voxelidx, num] = np.concatenate((points[i, :3], spherical_points[i, 2:]), axis=0)
             num_points_per_voxel[voxelidx] += 1
     # sum = num_points_per_voxel.sum()
     return voxel_num
@@ -222,10 +238,12 @@ def points_to_voxel(points,
                     grid_size,
                      voxel_size,
                      coors_range,
+                     cartesian_coors_range,
                      max_points=35,
                      reverse_index=True,
                      max_voxels=20000,
-                     spherical_coor=False):
+                     spherical_coor=False,
+                     RGB_embedding=None):
     """convert kitti points(N, >=3) to voxels. This version calculate
     everything in one loop. now it takes only 4.2ms(complete point cloud) 
     with jit and 3.2ghz cpu.(don't calculate other features)
@@ -285,28 +303,35 @@ def points_to_voxel(points,
     # don't create large array in jit(nopython=True) code.
     num_points_per_voxel = np.zeros(shape=(max_voxels, ), dtype=np.int32)
     coor_to_voxelidx = -np.ones(shape=voxelmap_shape, dtype=np.int32)
+    voxel_num_channel = 5
+    if RGB_embedding is not None:
+        voxel_num_channel += 3
     voxels = np.zeros(
-        shape=(max_voxels, max_points, 5), dtype=points.dtype)
+        shape=(max_voxels, max_points, voxel_num_channel), dtype=points.dtype)
     coors = np.zeros(shape=(max_voxels, 3), dtype=np.int32)
-    if reverse_index:
-        if spherical_coor:
-            voxel_num = _spherical_points_to_voxel_reverse_kernel(
-                spherical_points, points, grid_size, coors_range, num_points_per_voxel,
-                coor_to_voxelidx, voxels, coors, max_points, max_voxels)
-        else:
-            voxel_num = _points_to_voxel_reverse_kernel(
-                points, voxel_size, coors_range, num_points_per_voxel,
-                coor_to_voxelidx, voxels, coors, max_points, max_voxels)
+    voxel_num = _spherical_points_to_voxel_reverse_kernel(
+        spherical_points, points, grid_size, coors_range, cartesian_coors_range, num_points_per_voxel,
+        coor_to_voxelidx, voxels, coors, max_points, max_voxels, RGB_embedding=RGB_embedding)
 
-    else:
-        if spherical_coor:
-            voxel_num = _spherical_points_to_voxel_reverse_kernel(
-                spherical_points, grid_size, coors_range, num_points_per_voxel,
-                coor_to_voxelidx, voxels, coors, max_points, max_voxels)
-        else:
-            voxel_num = _points_to_voxel_kernel(
-                points, voxel_size, coors_range, num_points_per_voxel,
-                coor_to_voxelidx, voxels, coors, max_points, max_voxels)
+    # if reverse_index:
+    #     if spherical_coor:
+    #         voxel_num = _spherical_points_to_voxel_reverse_kernel(
+    #             spherical_points, points, grid_size, coors_range, num_points_per_voxel,
+    #             coor_to_voxelidx, voxels, coors, max_points, max_voxels)
+    #     else:
+    #         voxel_num = _points_to_voxel_reverse_kernel(
+    #             points, voxel_size, coors_range, num_points_per_voxel,
+    #             coor_to_voxelidx, voxels, coors, max_points, max_voxels)
+    #
+    # else:
+    #     if spherical_coor:
+    #         voxel_num = _spherical_points_to_voxel_reverse_kernel(
+    #             spherical_points, grid_size, coors_range, num_points_per_voxel,
+    #             coor_to_voxelidx, voxels, coors, max_points, max_voxels)
+    #     else:
+    #         voxel_num = _points_to_voxel_kernel(
+    #             points, voxel_size, coors_range, num_points_per_voxel,
+    #             coor_to_voxelidx, voxels, coors, max_points, max_voxels)
 
     coors = coors[:voxel_num]
     voxels = voxels[:voxel_num]

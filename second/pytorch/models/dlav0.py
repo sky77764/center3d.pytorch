@@ -233,7 +233,7 @@ class DLA(nn.Module):
         #     BatchNorm(channels[0]),
         #     nn.ReLU(inplace=True))
         self.base_layer = nn.Sequential(
-            nn.Conv2d(5, channels[0], kernel_size=7, stride=1,
+            nn.Conv2d(8, channels[0], kernel_size=7, stride=1,
                       padding=3, bias=False),
             BatchNorm(channels[0]),
             nn.ReLU(inplace=True))

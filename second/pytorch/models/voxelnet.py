@@ -621,7 +621,7 @@ class VoxelNet(nn.Module):
         self.rpn_total_loss = metrics.Scalar()
         self.register_buffer("global_step", torch.LongTensor(1).zero_())
 
-        self.debug_mode = True
+        self.debug_mode = False
         self.save_imgs = False
         if self.debug_mode:
             self.debugger = Debugger(theme='black', num_classes=self._num_class, down_ratio=self._down_ratio)
@@ -713,9 +713,10 @@ class VoxelNet(nn.Module):
         self._total_forward_time += time.time() - t
 
         if self.training:
-            # if self.debug_mode:
-            #     hm = example['hm']
-            #     self.show_fv_map(voxels, coors, batch_size_dev, hm=hm)
+            if self.debug_mode:
+                self.make_input_img(example['voxels'], example['coordinates'], batch_size_dev, example['image_idx'])
+                self.debugger.show_all_imgs(pause=True)
+                self.debugger.remove_all_imgs()
 
             # labels = example['labels']
             output = preds_dict
@@ -777,6 +778,7 @@ class VoxelNet(nn.Module):
                           output['dim'], reg=reg, K=40)
         if self.debug_mode:
             self.make_input_img(example['voxels'], example['coordinates'], batch_size, batch_imgidx)
+
             # self.make_hm_img(output['hm'])
             # self.make_hm_img(hm_nms, name='pred_hm_nms')
 

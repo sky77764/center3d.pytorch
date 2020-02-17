@@ -15,6 +15,7 @@ from second.core.point_cloud.point_cloud_ops import convert_to_spherical_coor
 from second.data.image import gaussian_radius, draw_umich_gaussian, draw_msra_gaussian
 
 import copy
+import cv2
 import math
 
 def merge_second_batch(batch_list, _unused=False):
@@ -113,6 +114,9 @@ def prep_pointcloud(input_dict,
     P2 = input_dict["P2"]
     unlabeled_training = unlabeled_db_sampler is not None
     image_idx = input_dict["image_idx"]
+    RGB_embedding = True
+    if RGB_embedding:
+        RGB_image = cv2.imread(input_dict['image_path'])
 
     if reference_detections is not None:
         C, R, T = box_np_ops.projection_matrix_to_CRT_kitti(P2)
@@ -194,6 +198,15 @@ def prep_pointcloud(input_dict,
                     points, sampled_gt_boxes)
 
             points = np.concatenate([sampled_points, points], axis=0)
+
+    if RGB_embedding:
+        points_camera = box_np_ops.box_lidar_to_camera(points[:, :3], rect, Trv2c)
+        points_to_image_idx = box_np_ops.project_to_image(points_camera, P2)
+        points_to_image_idx = points_to_image_idx.astype(int)
+        mask = box_np_ops.remove_points_outside_image(RGB_image, points_to_image_idx)
+        points = points[mask]
+        points_to_image_idx = points_to_image_idx[mask]
+
     # unlabeled_mask = np.zeros((gt_boxes.shape[0], ), dtype=np.bool_)
     if without_reflectivity and training:
         used_point_axes = list(range(num_point_features))
@@ -249,7 +262,7 @@ def prep_pointcloud(input_dict,
         np.random.shuffle(points)
 
     voxels, coordinates, num_points = voxel_generator.generate(
-        points, max_voxels)
+        points, max_voxels, RGB_embedding=RGB_image[points_to_image_idx[:,1], points_to_image_idx[:,0]])
 
     voxel_size = voxel_generator.voxel_size
     pc_range = copy.deepcopy(voxel_generator.point_cloud_range)
@@ -291,10 +304,12 @@ def prep_pointcloud(input_dict,
         'Trv2c': Trv2c,
         'P2': P2
     })
+    # if RGB_embedding:
+    #     example.update({
+    #         'points_to_image_idx': points_to_image_idx
+    #     })
 
     if training:
-
-
         hm = np.zeros(
             (num_classes, image_h, image_w), dtype=np.float32)
         reg = np.zeros((max_objs, 2), dtype=np.float32)
@@ -370,7 +385,7 @@ def _read_and_prep_v9(info, root_path, num_point_features, prep_func):
         'P2': P2,
         'image_shape': np.array(info["img_shape"], dtype=np.int32),
         'image_idx': image_idx,
-        'image_path': info['img_path'],
+        'image_path': root_path + '/' + info['img_path'],
         # 'pointcloud_num_features': num_point_features,
     }
 

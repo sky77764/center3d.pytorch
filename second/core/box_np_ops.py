@@ -865,3 +865,11 @@ def change_box3d_center_(box3d, src, dst):
     dst = np.array(dst, dtype=box3d.dtype)
     src = np.array(src, dtype=box3d.dtype)
     box3d[..., :3] += box3d[..., 3:6] * (dst - src)
+
+
+def remove_points_outside_image(image, points):
+    h_max, w_max = image.shape[0], image.shape[1]
+    mask_h = points[:, 1] < h_max
+    mask_w = points[:, 0] < w_max
+    mask = np.logical_and(mask_h, mask_w)
+    return mask
