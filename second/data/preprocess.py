@@ -96,7 +96,8 @@ def prep_pointcloud(input_dict,
                     bev_only=False,
                     use_group_id=False,
                     out_dtype=np.float32,
-                    num_classes=1):
+                    num_classes=1,
+                    RGB_embedding=False):
     """convert point cloud to voxels, create targets if ground truths 
     exists.
     """
@@ -114,9 +115,9 @@ def prep_pointcloud(input_dict,
     P2 = input_dict["P2"]
     unlabeled_training = unlabeled_db_sampler is not None
     image_idx = input_dict["image_idx"]
-    RGB_embedding = True
     if RGB_embedding:
         RGB_image = cv2.imread(input_dict['image_path'])
+
 
     if reference_detections is not None:
         C, R, T = box_np_ops.projection_matrix_to_CRT_kitti(P2)
@@ -166,7 +167,8 @@ def prep_pointcloud(input_dict,
             group_ids = group_ids[keep_mask]
     gt_boxes_mask = np.array(
         [n in class_names for n in gt_names], dtype=np.bool_)
-    if db_sampler is not None and training:
+    # TODO
+    if db_sampler is not None and training and not RGB_embedding:
         sampled_dict = db_sampler.sample_all(
             root_path,
             gt_boxes,
@@ -206,6 +208,16 @@ def prep_pointcloud(input_dict,
         mask = box_np_ops.remove_points_outside_image(RGB_image, points_to_image_idx)
         points = points[mask]
         points_to_image_idx = points_to_image_idx[mask]
+
+        # test_mask = points_camera[mask][:, 0] < 0
+        # test_image_idx = points_to_image_idx[test_mask]
+        # RGB_image[test_image_idx[:, 1], test_image_idx[:, 0]] = [255, 0, 0]
+        # test_mask = points_camera[mask][:, 0] >= 0
+        # test_image_idx = points_to_image_idx[test_mask]
+        # RGB_image[test_image_idx[:, 1], test_image_idx[:, 0]] = [0, 0, 255]
+        # print()
+
+
 
     # unlabeled_mask = np.zeros((gt_boxes.shape[0], ), dtype=np.bool_)
     if without_reflectivity and training:
@@ -257,14 +269,20 @@ def prep_pointcloud(input_dict,
     gt_boxes[:, 6] = box_np_ops.limit_period(
         gt_boxes[:, 6], offset=0.5, period=2 * np.pi)
 
-    if shuffle_points:
-        # shuffle is a little slow.
-        np.random.shuffle(points)
+    # TODO
+    # if shuffle_points:
+    #     # shuffle is a little slow.
+    #     np.random.shuffle(points)
 
-    voxels, coordinates, num_points = voxel_generator.generate(
-        points, max_voxels, RGB_embedding=RGB_image[points_to_image_idx[:,1], points_to_image_idx[:,0]])
+    if RGB_embedding:
+        voxels, coordinates, num_points = voxel_generator.generate(
+            points, max_voxels, RGB_embedding=RGB_image[points_to_image_idx[:,1], points_to_image_idx[:,0]])
+    else:
+        voxels, coordinates, num_points = voxel_generator.generate(
+            points, max_voxels)
 
     voxel_size = voxel_generator.voxel_size
+    grid_size = voxel_generator.grid_size
     pc_range = copy.deepcopy(voxel_generator.point_cloud_range)
     grid_size = voxel_generator.grid_size
     phi_min = voxel_generator.phi_min
@@ -296,7 +314,8 @@ def prep_pointcloud(input_dict,
         'voxel_size': voxel_size,
         'pc_range': pc_range,
         'meta': meta,
-        'spherical_gt_boxes': spherical_gt_boxes
+        'spherical_gt_boxes': spherical_gt_boxes,
+        'resized_image_shape': grid_size
     }
 
     example.update({
@@ -304,10 +323,11 @@ def prep_pointcloud(input_dict,
         'Trv2c': Trv2c,
         'P2': P2
     })
-    # if RGB_embedding:
-    #     example.update({
-    #         'points_to_image_idx': points_to_image_idx
-    #     })
+    if RGB_embedding:
+        RGB_image = cv2.resize(RGB_image, (640, 192))
+        example.update({
+            'RGB_image': RGB_image
+        })
 
     if training:
         hm = np.zeros(

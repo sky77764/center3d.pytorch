@@ -4,7 +4,7 @@ import numba
 import numpy as np
 import math
 
-# @numba.jit(nopython=True)
+@numba.jit(nopython=True)
 def _spherical_points_to_voxel_reverse_kernel(spherical_points, 
                                     points,
                                     grid_size,

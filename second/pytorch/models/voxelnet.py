@@ -27,6 +27,8 @@ from second.pytorch.models.decode import ddd_decode
 from second.utils.post_process import ddd_post_process
 from second.utils.debugger import Debugger
 
+import cv2
+
 def _get_pos_neg_loss(cls_loss, labels):
     # cls_loss: [N, num_anchors, num_class]
     # labels: [N, num_anchors]
@@ -536,7 +538,9 @@ class VoxelNet(nn.Module):
                  cls_loss_ftor=None,
                  voxel_size=(0.2, 0.2, 4),
                  pc_range=(0, -40, -3, 70.4, 40, 1),
-                 name='voxelnet'):
+                 name='voxelnet',
+                 save_path=None,
+                 RGB_embedding=False):
         super().__init__()
         self.name = name
         self._num_class = num_class
@@ -555,7 +559,7 @@ class VoxelNet(nn.Module):
         self._total_postprocess_time = 0.0
         self._total_inference_count = 0
         self._num_input_features = num_input_features
-        self._box_coder = target_assigner.box_coder
+        # self._box_coder = target_assigner.box_coder
         self._lidar_only = lidar_only
         self.target_assigner = target_assigner
         self._pos_cls_weight = pos_cls_weight
@@ -569,6 +573,8 @@ class VoxelNet(nn.Module):
         self._direction_loss_weight = direction_loss_weight
         self._cls_loss_weight = cls_loss_weight
         self._loc_loss_weight = loc_loss_weight
+        self._save_path = save_path
+        self._RGB_embedding = RGB_embedding
 
         self._output_shape = output_shape
 
@@ -596,14 +602,19 @@ class VoxelNet(nn.Module):
 
         print("middle_class_name", middle_class_name)
         if middle_class_name == "ForwardViewScatter":
+            # self.middle_feature_extractor = ForwardViewScatter(output_shape=output_shape,
+            #                                                     num_input_features=vfe_num_filters[-1])
+            input_channel = 5
+            if self._RGB_embedding:
+                input_channel += 3
             self.middle_feature_extractor = ForwardViewScatter(output_shape=output_shape,
-                                                                num_input_features=vfe_num_filters[-1])
+                                                               num_input_features=input_channel)
             num_rpn_input_filters = self.middle_feature_extractor.nchannels
 
 
         self._down_ratio = 1
         heads = {'hm':num_class, 'dep':1, 'rot':8, 'dim':3, 'reg':2}
-        self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256, down_ratio=self._down_ratio)
+        self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256, down_ratio=self._down_ratio, input_channel=num_rpn_input_filters)
 
 
         self.rpn_acc = metrics.Accuracy(
@@ -632,13 +643,15 @@ class VoxelNet(nn.Module):
     def get_global_step(self):
         return int(self.global_step.cpu().numpy()[0])
 
-    def get_fvmap(self, voxels, coords, batch_size):
+    def get_fvmap(self, voxels, coords, batch_size, RGB_embedding=False):
         # voxels = torch.mean(voxels, dim=1, keepdim=True)
         voxels = voxels[:, 0, :]
         voxel_features = voxels.squeeze()
-        channel_idx = 3
-
-        nx, ny, nchannels = self._output_shape[3], self._output_shape[2], 1
+        if not RGB_embedding:
+            channel_idx = 3
+            nx, ny, nchannels = self._output_shape[3], self._output_shape[2], 1
+        else:
+            nx, ny, nchannels = self._output_shape[3], self._output_shape[2], 3
         batch_canvas = []
         for batch_itt in range(batch_size):
             # Create the canvas for this sample
@@ -654,7 +667,10 @@ class VoxelNet(nn.Module):
             voxels = voxels.t()
 
             # Now scatter the blob back to the canvas.
-            canvas[:, indices] = voxels[channel_idx, :]
+            if not RGB_embedding:
+                canvas[:, indices] = voxels[channel_idx, :]
+            else:
+                canvas[:, indices] = voxels[5:, :]
 
             # Append to a list for later stacking.
             batch_canvas.append(canvas)
@@ -668,19 +684,25 @@ class VoxelNet(nn.Module):
         spherical_points = batch_canvas.cpu().numpy()
         return spherical_points
 
-    def make_input_img(self, voxels, coords, batch_size, batch_imgidx):
-        spherical_points = self.get_fvmap(voxels, coords, batch_size)
+    def make_input_img(self, voxels, coords, batch_size, batch_imgidx, RGB_embedding=False):
+        spherical_points = self.get_fvmap(voxels, coords, batch_size, RGB_embedding=RGB_embedding)
 
         for i in range(batch_size):
             # fvmap = np.expand_dims(spherical_points[i], axis=0)
             fvmap = spherical_points[i]
-            mask = fvmap != 0
-            fvmap[mask] -= fvmap[mask].min()
-            fvmap[mask] /= fvmap[mask].max()
-            fvmap[mask] = 1 - fvmap[mask]
+            if not RGB_embedding:
+                mask = fvmap != 0
+                fvmap[mask] -= fvmap[mask].min()
+                fvmap[mask] /= fvmap[mask].max()
+                fvmap[mask] = 1 - fvmap[mask]
 
-            colormap = self.debugger.gen_colormap(fvmap)
-            self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]))
+                colormap = self.debugger.gen_colormap(fvmap)
+                self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]) + '_D')
+            else:
+                colormap = self.debugger.gen_colormap_RGB(fvmap)
+                self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]) + '_RGB')
+
+
 
     def make_hm_img(self, hm, name=None):
         for i in range(hm.shape[0]):
@@ -715,7 +737,52 @@ class VoxelNet(nn.Module):
         if self.training:
             if self.debug_mode:
                 self.make_input_img(example['voxels'], example['coordinates'], batch_size_dev, example['image_idx'])
-                self.debugger.show_all_imgs(pause=True)
+                self.make_input_img(example['voxels'], example['coordinates'], batch_size_dev, example['image_idx'],
+                                    RGB_embedding=self._RGB_embedding)
+
+                if self._RGB_embedding:
+                    for i in range(batch_size_dev):
+                        RGB_image = example["RGB_image"][i]
+                        # colormap = self.debugger.gen_colormap_RGB2(RGB_image)
+                        # RGB_image *= 255
+                        self.debugger.add_img(RGB_image, img_id='RGB '+ str(example['image_idx'][i]))
+
+                spherical_gt_boxes = example['spherical_gt_boxes']
+                for i in range(spherical_gt_boxes.shape[0]):
+                    num_obj = 0
+                    for j in range(spherical_gt_boxes.shape[1]):
+                        if np.all(spherical_gt_boxes[i, j, :] == 0):
+                            num_obj = j
+                            break
+                    if num_obj == 0:
+                        continue
+                    spherical_gt_box = torch.from_numpy(spherical_gt_boxes[i, :num_obj, :])
+
+                    phi = spherical_gt_box[:, 0] * example['voxel_size'][i][0] + example['meta'][i]['phi_min']
+                    theta = spherical_gt_box[:, 1] * example['voxel_size'][i][1] + example['meta'][i]['theta_min']
+                    depth = spherical_gt_box[:, 2]
+                    spherical_gt_box[:, 0] = torch.sin(theta) * torch.cos(phi) * depth
+                    spherical_gt_box[:, 1] = torch.sin(theta) * torch.sin(phi) * depth
+                    spherical_gt_box[:, 2] = (torch.cos(theta) * depth) - (spherical_gt_box[:, 5] / 2)
+
+                    locs = spherical_gt_box[:, 0:3]
+                    dims = spherical_gt_box[:, 3:6]
+                    angles = spherical_gt_box[:, 6]
+                    camera_box_origin = [0.5, 0.5, 0]
+
+                    box_corners = box_torch_ops.center_to_corner_box3d(
+                        locs, dims, angles, camera_box_origin, axis=2)
+                    box_corners_in_image = box_torch_ops.project_to_image(
+                        box_corners, example['voxel_size'][i], example['meta'][i])
+                    box_centers_in_image = box_torch_ops.project_to_image(
+                        locs, example['voxel_size'][i], example['meta'][i])
+
+                    for j in range(num_obj):
+                        self.debugger.add_3d_detection2(box_corners_in_image[j], c=[0, 255, 0],
+                                                        img_id=str(example['image_idx'][i])+'_D')
+                        self.debugger.add_point(box_centers_in_image[j], c=(0, 255, 0), img_id=str(example['image_idx'][i])+'_D')
+
+                self.debugger.show_all_imgs(pause=True, stack=True, ids=example['image_idx'])
                 self.debugger.remove_all_imgs()
 
             # labels = example['labels']
@@ -837,6 +904,19 @@ class VoxelNet(nn.Module):
                     minxy = torch.min(box_corners_in_image, dim=1)[0]
                     maxxy = torch.max(box_corners_in_image, dim=1)[0]
 
+                    resized_image_shape = example['resized_image_shape'][i]
+                    resized_w, resized_h = resized_image_shape[0], resized_image_shape[1]
+                    image_shape = example['image_shape'][i]
+                    original_w, original_h = image_shape[1], image_shape[0]
+                    scale_w = original_w / resized_w
+                    scale_h = original_h / resized_h
+                    if scale_w != 1:
+                        minxy[:, 0] = minxy[:, 0] * scale_w
+                        maxxy[:, 0] = maxxy[:, 0] * scale_w
+                    if scale_h != 1:
+                        minxy[:, 1] = minxy[:, 1] * scale_h
+                        maxxy[:, 1] = maxxy[:, 1] * scale_h
+
                     box_2d_preds = torch.cat([minxy, maxxy], dim=1)
                     # predictions
                     predictions_dict = {
@@ -908,7 +988,7 @@ class VoxelNet(nn.Module):
                             self.debugger.add_point(pred_dict['box_centers_in_image'][j], c= (255, 0, 0), img_id=str(batch_imgidx[i]))
 
             if self.save_imgs:
-                self.debugger.save_all_imgs(path='./output/visualize/cache/')
+                self.debugger.save_all_imgs(path=str(self._save_path) + '/visualize/')
             else:
                 self.debugger.show_all_imgs(pause=True)
 

@@ -34,7 +34,8 @@ def build(input_reader_config,
           model_config,
           training,
           voxel_generator,
-          target_assigner=None):
+          target_assigner=None,
+          RGB_embedding=False):
     """Builds a tensor dictionary based on the InputReader config.
 
     Args:
@@ -99,7 +100,8 @@ def build(input_reader_config,
         remove_points_after_sample=cfg.remove_points_after_sample,
         remove_environment=cfg.remove_environment,
         use_group_id=cfg.use_group_id,
-        out_size_factor=out_size_factor)
+        out_size_factor=out_size_factor,
+        RGB_embedding=RGB_embedding)
     dataset = KittiDataset(
         info_path=cfg.kitti_info_path,
         root_path=cfg.kitti_root_path,

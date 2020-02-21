@@ -94,6 +94,27 @@ class Debugger(object):
         # color_map = cv2.resize(color_map, (output_res[0], output_res[1]))
         return color_map
 
+    def gen_colormap_RGB(self, img, output_res=None):
+        img = img.copy()
+        c, h, w = img.shape[0], img.shape[1], img.shape[2]
+        if output_res is None:
+            output_res = (h * self.down_ratio, w * self.down_ratio)
+        img = img.transpose(1, 2, 0).reshape(h, w, c).astype(np.float32)
+
+        color_map = (img * 255).astype(np.uint8)
+        # color_map = cv2.resize(color_map, (output_res[0], output_res[1]))
+        return color_map
+
+    def gen_colormap_RGB2(self, img, output_res=None):
+        img = img.copy()
+        h, w, c = img.shape[0], img.shape[1], img.shape[2]
+        if output_res is None:
+            output_res = (h * self.down_ratio, w * self.down_ratio)
+
+        color_map = (img * 255).astype(np.uint8)
+        # color_map = cv2.resize(color_map, (output_res[0], output_res[1]))
+        return color_map
+
     '''
     # slow
     def gen_colormap_hp(self, img, output_res=None):
@@ -190,8 +211,8 @@ class Debugger(object):
     def remove_all_imgs(self):
         self.imgs = {}
 
-    def show_all_imgs(self, pause=False, time=0):
-        if not self.ipynb:
+    def show_all_imgs(self, pause=False, time=0, stack=False, ids=None):
+        if not stack:
             for i, v in self.imgs.items():
                 cv2.imshow('{}'.format(i), v)
             if cv2.waitKey(0 if pause else 1) == 27:
@@ -199,18 +220,18 @@ class Debugger(object):
                 sys.exit(0)
             cv2.destroyAllWindows()
         else:
-            self.ax = None
-            nImgs = len(self.imgs)
-            fig = self.plt.figure(figsize=(nImgs * 10, 10))
-            nCols = nImgs
-            nRows = nImgs // nCols
-            for i, (k, v) in enumerate(self.imgs.items()):
-                fig.add_subplot(1, nImgs, i + 1)
-                if len(v.shape) == 3:
-                    self.plt.imshow(cv2.cvtColor(v, cv2.COLOR_BGR2RGB))
-                else:
-                    self.plt.imshow(v)
-            self.plt.show()
+            for id in ids:
+                id = str(id)
+                stacked_image = []
+                for i, v in self.imgs.items():
+                    if id in i:
+                        stacked_image.append(v)
+                stacked_image = np.concatenate(stacked_image, axis=0)
+                cv2.imshow('{}'.format(id), stacked_image)
+            if cv2.waitKey(0 if pause else 1) == 27:
+                import sys
+                sys.exit(0)
+            cv2.destroyAllWindows()
 
     def save_img(self, imgId='default', path='./cache/debug/'):
         cv2.imwrite(path + '{}.png'.format(imgId), self.imgs[imgId])

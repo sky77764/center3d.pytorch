@@ -38,20 +38,21 @@ class KittiDataset(Dataset):
         print("remain number of infos:", len(self._kitti_infos))
         # generate anchors cache
         # [352, 400]
-        ret = target_assigner.generate_anchors(feature_map_size)
-        anchors = ret["anchors"]
-        anchors = anchors.reshape([-1, 7])
-        matched_thresholds = ret["matched_thresholds"]
-        unmatched_thresholds = ret["unmatched_thresholds"]
-        anchors_bv = box_np_ops.rbbox2d_to_near_bbox(
-            anchors[:, [0, 1, 3, 4, 6]])
-        anchor_cache = {
-            "anchors": anchors,
-            "anchors_bv": anchors_bv,
-            "matched_thresholds": matched_thresholds,
-            "unmatched_thresholds": unmatched_thresholds,
-        }
-        self._prep_func = partial(prep_func, anchor_cache=anchor_cache)
+        # ret = target_assigner.generate_anchors(feature_map_size)
+        # anchors = ret["anchors"]
+        # anchors = anchors.reshape([-1, 7])
+        # matched_thresholds = ret["matched_thresholds"]
+        # unmatched_thresholds = ret["unmatched_thresholds"]
+        # anchors_bv = box_np_ops.rbbox2d_to_near_bbox(
+        #     anchors[:, [0, 1, 3, 4, 6]])
+        # anchor_cache = {
+        #     "anchors": anchors,
+        #     "anchors_bv": anchors_bv,
+        #     "matched_thresholds": matched_thresholds,
+        #     "unmatched_thresholds": unmatched_thresholds,
+        # }
+
+        self._prep_func = partial(prep_func, anchor_cache=None)
 
     def __len__(self):
         return len(self._kitti_infos)

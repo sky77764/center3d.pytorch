@@ -222,7 +222,7 @@ class Tree(nn.Module):
 class DLA(nn.Module):
     def __init__(self, levels, channels, num_classes=1000,
                  block=BasicBlock, residual_root=False, return_levels=False,
-                 pool_size=7, linear_root=False):
+                 pool_size=7, linear_root=False, input_channel=None):
         super(DLA, self).__init__()
         self.channels = channels
         self.return_levels = return_levels
@@ -232,11 +232,16 @@ class DLA(nn.Module):
         #               padding=3, bias=False),
         #     BatchNorm(channels[0]),
         #     nn.ReLU(inplace=True))
-        self.base_layer = nn.Sequential(
-            nn.Conv2d(8, channels[0], kernel_size=7, stride=1,
-                      padding=3, bias=False),
-            BatchNorm(channels[0]),
-            nn.ReLU(inplace=True))
+        if input_channel is None:
+            self.base_layer = nn.Sequential(
+                nn.Conv2d(8, channels[0], kernel_size=7, stride=1, padding=3, bias=False),
+                BatchNorm(channels[0]),
+                nn.ReLU(inplace=True))
+        else:
+            self.base_layer = nn.Sequential(
+                nn.Conv2d(input_channel, channels[0], kernel_size=7, stride=1, padding=3, bias=False),
+                BatchNorm(channels[0]),
+                nn.ReLU(inplace=True))
         self.level0 = self._make_conv_level(
             channels[0], channels[0], levels[0])
         self.level1 = self._make_conv_level(
@@ -543,13 +548,13 @@ def fill_fc_weights(layers):
 
 class DLASeg(nn.Module):
     def __init__(self, base_name, heads,
-                 pretrained=True, down_ratio=4, head_conv=256):
+                 pretrained=True, down_ratio=4, head_conv=256, input_channel=None):
         super(DLASeg, self).__init__()
         assert down_ratio in [1, 2, 4, 8, 16]
         self.heads = heads
         self.first_level = int(np.log2(down_ratio))
         self.base = globals()[base_name](
-            pretrained=pretrained, return_levels=True)
+            pretrained=pretrained, return_levels=True, input_channel=input_channel)
         channels = self.base.channels
         scales = [2 ** i for i in range(len(channels[self.first_level:]))]
         self.dla_up = DLAUp(channels[self.first_level:], scales=scales)
@@ -653,9 +658,10 @@ def dla169up(classes, pretrained_base=None, **kwargs):
 '''
 
 
-def get_pose_net(num_layers, heads, head_conv=256, down_ratio=4):
+def get_pose_net(num_layers, heads, head_conv=256, down_ratio=4, input_channel=None):
     model = DLASeg('dla{}'.format(num_layers), heads,
                    pretrained=False,
                    down_ratio=down_ratio,
-                   head_conv=head_conv)
+                   head_conv=head_conv,
+                   input_channel=input_channel)
     return model

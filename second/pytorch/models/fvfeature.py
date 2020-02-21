@@ -176,11 +176,7 @@ class ForwardViewScatter(nn.Module):
         self.output_shape = output_shape
         self.ny = output_shape[2]
         self.nx = output_shape[3]
-        # self.nchannels = num_input_features
-        self.nchannels = 5
-        RGB_embedding = True
-        if RGB_embedding:
-            self.nchannels += 3
+        self.nchannels = num_input_features
 
 
     def forward(self, voxel_features, coords, batch_size):

@@ -82,6 +82,7 @@ def example_convert_to_torch(example, dtype=torch.float32,
             example_torch[k] = v
     return example_torch
 
+RGB_embedding = False
 
 def train(config_path,
           model_dir,
@@ -121,16 +122,17 @@ def train(config_path,
     ######################
     # BUILD TARGET ASSIGNER
     ######################
-    bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
-    box_coder = box_coder_builder.build(model_cfg.box_coder)
-    target_assigner_cfg = model_cfg.target_assigner
-    target_assigner = target_assigner_builder.build(target_assigner_cfg,
-                                                    bv_range, box_coder)
+    # bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
+    # box_coder = box_coder_builder.build(model_cfg.box_coder)
+    # target_assigner_cfg = model_cfg.target_assigner
+    # target_assigner = target_assigner_builder.build(target_assigner_cfg,
+    #                                                 bv_range, box_coder)
+    bv_range = box_coder = target_assigner_cfg = target_assigner = None
     ######################
     # BUILD NET
     ######################
     center_limit_range = model_cfg.post_center_limit_range
-    net = second_builder.build(model_cfg, voxel_generator, target_assigner)
+    net = second_builder.build(model_cfg, voxel_generator, target_assigner, save_path=model_dir, RGB_embedding=RGB_embedding)
     net.cuda()
     # net_train = torch.nn.DataParallel(net).cuda()
     print("num_trainable parameters:", len(list(net.parameters())))
@@ -165,19 +167,21 @@ def train(config_path,
     ######################
     # PREPARE INPUT
     ######################
-
     dataset = input_reader_builder.build(
         input_cfg,
         model_cfg,
         training=True,
         voxel_generator=voxel_generator,
-        target_assigner=target_assigner)
+        target_assigner=target_assigner,
+        RGB_embedding=RGB_embedding)
+
     eval_dataset = input_reader_builder.build(
         eval_input_cfg,
         model_cfg,
         training=False,
         voxel_generator=voxel_generator,
-        target_assigner=target_assigner)
+        target_assigner=target_assigner,
+        RGB_embedding=RGB_embedding)
 
     def _worker_init_fn(worker_id):
         time_seed = np.array(time.time(), dtype=np.int32)
@@ -217,8 +221,8 @@ def train(config_path,
     t = time.time()
     ckpt_start_time = t
 
-    total_loop = train_cfg.steps // train_cfg.steps_per_eval + 1
-    # total_loop = remain_steps // train_cfg.steps_per_eval + 1
+    # total_loop = train_cfg.steps // train_cfg.steps_per_eval + 1
+    total_loop = remain_steps // train_cfg.steps_per_eval + 1
     clear_metrics_every_epoch = train_cfg.clear_metrics_every_epoch
 
     if train_cfg.steps % train_cfg.steps_per_eval == 0:
@@ -344,11 +348,11 @@ def train(config_path,
                                                 net.get_global_step(), max_to_keep=10)
                     ckpt_start_time = time.time()
             total_step_elapsed += steps
-            torchplus.train.save_models(model_dir, [net, optimizer],
-                                        net.get_global_step(), max_to_keep=10)
-
-            # Ensure that all evaluation points are saved forever
-            torchplus.train.save_models(eval_checkpoint_dir, [net, optimizer], net.get_global_step(), max_to_keep=10)
+            # torchplus.train.save_models(model_dir, [net, optimizer],
+            #                             net.get_global_step(), max_to_keep=10)
+            #
+            # # Ensure that all evaluation points are saved forever
+            # torchplus.train.save_models(eval_checkpoint_dir, [net, optimizer], net.get_global_step(), max_to_keep=10)
 
             net.eval()
             result_path_step = result_path / f"step_{net.get_global_step()}"
@@ -504,6 +508,7 @@ def predict_kitti_to_anno(net,
         image_shape = batch_image_shape[i]
         img_idx = preds_dict["image_idx"]
         if preds_dict["bbox"] is not None:
+            # TODO: image scale
             box_2d_preds = preds_dict["bbox"].detach().cpu().numpy()
             box_preds = preds_dict["box3d_camera"].detach().cpu().numpy()
             scores = preds_dict["scores"].detach().cpu().numpy()
@@ -591,13 +596,13 @@ def evaluate(config_path,
     # BUILD VOXEL GENERATOR
     ######################
     voxel_generator = voxel_builder.build(model_cfg.voxel_generator)
-    bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
-    box_coder = box_coder_builder.build(model_cfg.box_coder)
-    target_assigner_cfg = model_cfg.target_assigner
-    target_assigner = target_assigner_builder.build(target_assigner_cfg,
-                                                    bv_range, box_coder)
-
-    net = second_builder.build(model_cfg, voxel_generator, target_assigner)
+    # bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
+    # box_coder = box_coder_builder.build(model_cfg.box_coder)
+    # target_assigner_cfg = model_cfg.target_assigner
+    # target_assigner = target_assigner_builder.build(target_assigner_cfg,
+    #                                                 bv_range, box_coder)
+    bv_range = box_coder = target_assigner_cfg = target_assigner = None
+    net = second_builder.build(model_cfg, voxel_generator, target_assigner, save_path=model_dir, RGB_embedding=RGB_embedding)
     net.cuda()
     if train_cfg.enable_mixed_precision:
         net.half()
@@ -614,7 +619,8 @@ def evaluate(config_path,
         model_cfg,
         training=False,
         voxel_generator=voxel_generator,
-        target_assigner=target_assigner)
+        target_assigner=target_assigner,
+        RGB_embedding=RGB_embedding)
     eval_dataloader = torch.utils.data.DataLoader(
         eval_dataset,
         batch_size=input_cfg.batch_size,
