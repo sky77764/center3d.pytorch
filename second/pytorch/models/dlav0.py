@@ -232,6 +232,7 @@ class DLA(nn.Module):
         #               padding=3, bias=False),
         #     BatchNorm(channels[0]),
         #     nn.ReLU(inplace=True))
+        # print("dla: ", input_channel)
         if input_channel is None:
             self.base_layer = nn.Sequential(
                 nn.Conv2d(8, channels[0], kernel_size=7, stride=1, padding=3, bias=False),
@@ -253,8 +254,9 @@ class DLA(nn.Module):
                            level_root=True, root_residual=residual_root)
         self.level4 = Tree(levels[4], block, channels[3], channels[4], 2,
                            level_root=True, root_residual=residual_root)
-        self.level5 = Tree(levels[5], block, channels[4], channels[5], 2,
-                           level_root=True, root_residual=residual_root)
+        if len(levels) > 5:
+            self.level5 = Tree(levels[5], block, channels[4], channels[5], 2,
+                               level_root=True, root_residual=residual_root)
 
         self.avgpool = nn.AvgPool2d(pool_size)
         self.fc = nn.Conv2d(channels[-1], num_classes, kernel_size=1,
@@ -300,7 +302,7 @@ class DLA(nn.Module):
     def forward(self, x):
         y = []
         x = self.base_layer(x)
-        for i in range(6):
+        for i in range(len(self.channels)):
             x = getattr(self, 'level{}'.format(i))(x)
             y.append(x)
         if self.return_levels:
@@ -326,6 +328,16 @@ class DLA(nn.Module):
         self.load_state_dict(model_weights)
         self.fc = fc
 
+def dla34_new(pretrained, **kwargs):  # DLA-34
+    # model = DLA([1, 1, 1, 2, 2, 1],
+    #             [64, 64, 64, 128, 256, 512],
+    #             block=BasicBlock, **kwargs)
+    model = DLA([1, 1, 1, 2, 2],
+                [64, 64, 64, 128, 256],
+                block=BasicBlock, **kwargs)
+    if pretrained:
+        model.load_pretrained_model(data='imagenet', name='dla34', hash='ba72cf86')
+    return model
 
 def dla34(pretrained, **kwargs):  # DLA-34
     # model = DLA([1, 1, 1, 2, 2, 1],
@@ -548,7 +560,7 @@ def fill_fc_weights(layers):
 
 class DLASeg(nn.Module):
     def __init__(self, base_name, heads,
-                 pretrained=True, down_ratio=4, head_conv=256, input_channel=None):
+                 pretrained=True, down_ratio=4, head_conv=256, input_channel=None, depth_channel=-1):
         super(DLASeg, self).__init__()
         assert down_ratio in [1, 2, 4, 8, 16]
         self.heads = heads
@@ -565,11 +577,15 @@ class DLASeg(nn.Module):
         )
         '''
 
+        in_channel = channels[self.first_level]
+        if depth_channel != -1:
+            in_channel += 1
         for head in self.heads:
             classes = self.heads[head]
+
             if head_conv > 0:
                 fc = nn.Sequential(
-                    nn.Conv2d(channels[self.first_level], head_conv,
+                    nn.Conv2d(in_channel, head_conv,
                               kernel_size=3, padding=1, bias=True),
                     nn.ReLU(inplace=True),
                     nn.Conv2d(head_conv, classes,
@@ -580,7 +596,7 @@ class DLASeg(nn.Module):
                 else:
                     fill_fc_weights(fc)
             else:
-                fc = nn.Conv2d(channels[self.first_level], classes,
+                fc = nn.Conv2d(in_channel, classes,
                                kernel_size=1, stride=1,
                                padding=0, bias=True)
                 if 'hm' in head:
@@ -588,6 +604,9 @@ class DLASeg(nn.Module):
                 else:
                     fill_fc_weights(fc)
             self.__setattr__(head, fc)
+
+        self.depth_channel = depth_channel
+
 
         '''
         up_factor = 2 ** self.first_level
@@ -614,10 +633,14 @@ class DLASeg(nn.Module):
         '''
 
     def forward(self, x):
+        if self.depth_channel != -1:
+            depth = x[:, self.depth_channel, :, :].unsqueeze(1)
         x = self.base(x)
         x = self.dla_up(x[self.first_level:])
         # x = self.fc(x)
         # y = self.softmax(self.up(x))
+        if self.depth_channel != -1:
+            x = torch.cat([x, depth], 1)
         ret = {}
         for head in self.heads:
             ret[head] = self.__getattr__(head)(x)
@@ -659,9 +682,10 @@ def dla169up(classes, pretrained_base=None, **kwargs):
 
 
 def get_pose_net(num_layers, heads, head_conv=256, down_ratio=4, input_channel=None):
-    model = DLASeg('dla{}'.format(num_layers), heads,
+    model = DLASeg('dla{}_new'.format(num_layers), heads,
                    pretrained=False,
                    down_ratio=down_ratio,
                    head_conv=head_conv,
-                   input_channel=input_channel)
+                   input_channel=input_channel,
+                   depth_channel=3)
     return model

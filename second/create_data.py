@@ -190,7 +190,7 @@ def create_reduced_point_cloud(data_path,
         _create_reduced_point_cloud(
             data_path, test_info_path, save_path, back=True)
 
-
+import cv2
 def create_groundtruth_database(data_path,
                                 info_path=None,
                                 used_classes=None,
@@ -200,6 +200,8 @@ def create_groundtruth_database(data_path,
                                 lidar_only=False,
                                 bev_only=False,
                                 coors_range=None):
+    RGB_embedding = True
+
     root_path = pathlib.Path(data_path)
     if info_path is None:
         info_path = root_path / 'kitti_infos_train.pkl'
@@ -208,7 +210,10 @@ def create_groundtruth_database(data_path,
     else:
         database_save_path = pathlib.Path(database_save_path)
     if db_info_save_path is None:
-        db_info_save_path = root_path / "kitti_dbinfos_train.pkl"
+        if RGB_embedding:
+            db_info_save_path = root_path / "kitti_dbinfos_train_RGB.pkl"
+        else:
+            db_info_save_path = root_path / "kitti_dbinfos_train.pkl"
     database_save_path.mkdir(parents=True, exist_ok=True)
     with open(info_path, 'rb') as f:
         kitti_infos = pickle.load(f)
@@ -250,6 +255,19 @@ def create_groundtruth_database(data_path,
             assert coors_range is not None
             rbbox_lidar[:, 2] = coors_range[2]
             rbbox_lidar[:, 5] = coors_range[5] - coors_range[2]
+
+
+
+        if RGB_embedding:
+            RGB_image = cv2.imread(str(root_path / info['img_path']))
+            points_camera = box_np_ops.box_lidar_to_camera(points[:, :3], rect, Trv2c)
+            points_to_image_idx = box_np_ops.project_to_image(points_camera, P2)
+            points_to_image_idx = points_to_image_idx.astype(int)
+            mask = box_np_ops.remove_points_outside_image(RGB_image, points_to_image_idx)
+            points = points[mask]
+            points_to_image_idx = points_to_image_idx[mask]
+            BGR = RGB_image[points_to_image_idx[:, 1], points_to_image_idx[:, 0]]
+            points = np.concatenate((points, BGR), axis=1)
         
         group_dict = {}
         group_ids = np.full([bboxes.shape[0]], -1, dtype=np.int64)
@@ -259,7 +277,10 @@ def create_groundtruth_database(data_path,
             group_ids = np.arange(bboxes.shape[0], dtype=np.int64)
         point_indices = box_np_ops.points_in_rbbox(points, rbbox_lidar)
         for i in range(num_obj):
-            filename = f"{image_idx}_{names[i]}_{gt_idxes[i]}.bin"
+            if RGB_embedding:
+                filename = f"{image_idx}_{names[i]}_{gt_idxes[i]}_RGB.bin"
+            else:
+                filename = f"{image_idx}_{names[i]}_{gt_idxes[i]}.bin"
             filepath = database_save_path / filename
             gt_points = points[point_indices[:, i]]
 

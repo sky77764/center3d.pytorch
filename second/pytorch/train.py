@@ -82,7 +82,7 @@ def example_convert_to_torch(example, dtype=torch.float32,
             example_torch[k] = v
     return example_torch
 
-RGB_embedding = False
+RGB_embedding = True
 
 def train(config_path,
           model_dir,
@@ -473,9 +473,11 @@ def _predict_kitti_to_file(net,
                         continue
                 bbox[2:] = np.minimum(bbox[2:], image_shape[::-1])
                 bbox[:2] = np.maximum(bbox[:2], [0, 0])
+                obj_dir = np.arctan2(box[2], box[0])
                 result_dict = {
                     'name': class_names[int(label)],
-                    'alpha': -np.arctan2(-box_lidar[1], box_lidar[0]) + box[6],
+                    # 'alpha': -np.arctan2(-box_lidar[1], box_lidar[0]) + box[6],
+                    'alpha': -np.sign(obj_dir) * np.pi / 2 + obj_dir + box[6],
                     'bbox': bbox,
                     'location': box[:3],
                     'dimensions': box[3:6],
@@ -537,8 +539,10 @@ def predict_kitti_to_anno(net,
                 anno["name"].append(class_names[int(label)])
                 anno["truncated"].append(0.0)
                 anno["occluded"].append(0)
-                anno["alpha"].append(-np.arctan2(-box_lidar[1], box_lidar[0]) +
-                                     box[6])
+                # anno["alpha"].append(-np.arctan2(-box_lidar[1], box_lidar[0]) +
+                #                      box[6])
+                obj_dir = np.arctan2(box[2], box[0])
+                anno["alpha"].append(-np.sign(obj_dir) * np.pi / 2 + obj_dir + box[6])
                 anno["bbox"].append(bbox)
                 anno["dimensions"].append(box[3:6])
                 anno["location"].append(box[:3])

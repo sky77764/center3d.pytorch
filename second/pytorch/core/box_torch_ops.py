@@ -352,17 +352,17 @@ def center_to_corner_box2d(centers, dims, angles=None, origin=0.5):
     return corners
 
 
-# def project_to_image(points_3d, proj_mat):
-#     points_num = list(points_3d.shape)[:-1]
-#     points_shape = np.concatenate([points_num, [1]], axis=0).tolist()
-#     points_4 = torch.cat(
-#         [points_3d, torch.zeros(*points_shape).type_as(points_3d)], dim=-1)
-#     # point_2d = points_4 @ tf.transpose(proj_mat, [1, 0])
-#     point_2d = torch.matmul(points_4, proj_mat.t())
-#     point_2d_res = point_2d[..., :2] / point_2d[..., 2:3]
-#     return point_2d_res
+def project_to_image(points_3d, proj_mat):
+    points_num = list(points_3d.shape)[:-1]
+    points_shape = np.concatenate([points_num, [1]], axis=0).tolist()
+    points_4 = torch.cat(
+        [points_3d, torch.zeros(*points_shape).type_as(points_3d)], dim=-1)
+    # point_2d = points_4 @ tf.transpose(proj_mat, [1, 0])
+    point_2d = torch.matmul(points_4, proj_mat.t())
+    point_2d_res = point_2d[..., :2] / point_2d[..., 2:3]
+    return point_2d_res
 
-def project_to_image(points_3d, voxel_size, meta):
+def project_to_fv_image(points_3d, voxel_size, meta):
     if len(points_3d.shape) == 3:
         x = points_3d[:, :, 0]
         y = points_3d[:, :, 1]
@@ -406,6 +406,13 @@ def lidar_to_camera(points, r_rect, velo2cam):
 def box_camera_to_lidar(data, r_rect, velo2cam):
     xyz = data[..., 0:3]
     l, h, w = data[..., 3:4], data[..., 4:5], data[..., 5:6]
+    r = data[..., 6:7]
+    xyz_lidar = camera_to_lidar(xyz, r_rect, velo2cam)
+    return torch.cat([xyz_lidar, w, l, h, r], dim=-1)
+
+def box_camera_to_lidar2(data, r_rect, velo2cam):
+    xyz = data[..., 3:6]
+    w, l, h = data[..., 0:1], data[..., 1:2], data[..., 2:3]
     r = data[..., 6:7]
     xyz_lidar = camera_to_lidar(xyz, r_rect, velo2cam)
     return torch.cat([xyz_lidar, w, l, h, r], dim=-1)

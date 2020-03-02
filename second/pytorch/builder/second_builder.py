@@ -21,7 +21,7 @@ from second.pytorch.models.voxelnet import LossNormType, VoxelNet
 
 
 def build(model_cfg: second_pb2.VoxelNet, voxel_generator,
-          target_assigner, save_path=None, RGB_embedding=False) -> VoxelNet:
+          target_assigner, save_path=None, RGB_embedding=True) -> VoxelNet:
     """build second pytorch instance.
     """
     if not isinstance(model_cfg, second_pb2.VoxelNet):

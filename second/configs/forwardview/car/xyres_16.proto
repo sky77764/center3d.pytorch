@@ -115,7 +115,7 @@ train_input_reader: {
   groundtruth_points_drop_percentage: 0.0
   groundtruth_drop_max_keep_points: 15
   database_sampler {
-    database_info_path: "/home/js/data/KITTI/object/kitti_dbinfos_train.pkl"
+    database_info_path: "/home/js/data/KITTI/object/kitti_dbinfos_train_RGB.pkl"
     sample_groups {
       name_to_max_num {
         key: "Car"
@@ -180,7 +180,7 @@ eval_input_reader: {
   prefetch_size : 25
   max_number_of_voxels: 20000
   shuffle_points: false
-  num_workers: 3
+  num_workers: 2
   anchor_area_threshold: 1
   remove_environment: false
   kitti_info_path: "/home/js/data/KITTI/object/kitti_infos_val.pkl"

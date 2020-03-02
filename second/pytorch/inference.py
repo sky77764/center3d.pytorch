@@ -17,6 +17,7 @@ class TorchInferenceContext(InferenceContext):
         super().__init__()
         self.net = None
         self.anchor_cache = None
+        self.RGB_embedding = True
 
     def _build(self):
         config = self.config
@@ -37,7 +38,7 @@ class TorchInferenceContext(InferenceContext):
         self.target_assigner = target_assigner
         out_size_factor = model_cfg.rpn.layer_strides[0] // model_cfg.rpn.upsample_strides[0]
         self.net = second_builder.build(model_cfg, voxel_generator,
-                                          target_assigner)
+                                          target_assigner, RGB_embedding=self.RGB_embedding)
         self.net.cuda().eval()
         if train_cfg.enable_mixed_precision:
             self.net.half()

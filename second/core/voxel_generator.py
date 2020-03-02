@@ -28,7 +28,7 @@ class VoxelGenerator:
         self._theta_min = 0
         self._cartesian_coord_range = point_cloud_range
 
-    def generate(self, points, max_voxels, RGB_embedding=None):
+    def generate(self, points, max_voxels, RGB_embedding=False):
         voxels, coors, num_points_per_voxel, self._phi_min, self._theta_min, self._voxel_size, self._point_cloud_range = points_to_voxel(
             points, self._grid_size, self._voxel_size, self._point_cloud_range, self._cartesian_coord_range,
             self._max_num_points, True, max_voxels, self._spherical_coor, RGB_embedding=RGB_embedding)

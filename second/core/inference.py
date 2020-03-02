@@ -6,6 +6,7 @@ from google.protobuf import text_format
 
 from second.data.preprocess import merge_second_batch, prep_pointcloud
 from second.protos import pipeline_pb2
+from second.data import kitti_common as kitti
 
 
 class InferenceContext:
@@ -16,6 +17,7 @@ class InferenceContext:
         self.voxel_generator = None
         self.anchor_cache = None
         self.built = False
+        self.RGB_embedding = True
 
     def get_inference_input_dict(self, info, points):
         # assert self.anchor_cache is not None
@@ -29,6 +31,7 @@ class InferenceContext:
         input_cfg = self.config.eval_input_reader
         model_cfg = self.config.model.second
 
+        root_path = '/home/js/data/KITTI/object'
         input_dict = {
             'points': points,
             'rect': rect,
@@ -36,10 +39,37 @@ class InferenceContext:
             'P2': P2,
             'image_shape': np.array(info["img_shape"], dtype=np.int32),
             'image_idx': info['image_idx'],
-            'image_path': info['img_path'],
+            'image_path': root_path + '/' + info['img_path'],
             # 'pointcloud_num_features': num_point_features,
         }
+
+        if 'annos' in info:
+            annos = info['annos']
+            # we need other objects to avoid collision when sample
+            annos = kitti.remove_dontcare(annos)
+            loc = annos["location"]
+            dims = annos["dimensions"]
+            rots = annos["rotation_y"]
+            # alpha = annos["alpha"]
+            gt_names = annos["name"]
+            # print(gt_names, len(loc))
+            gt_boxes = np.concatenate(
+                [loc, dims, rots[..., np.newaxis]], axis=1).astype(np.float32)
+            # gt_boxes = np.concatenate(
+            #     [loc, dims, alpha[..., np.newaxis]], axis=1).astype(np.float32)
+            # gt_boxes = box_np_ops.box_camera_to_lidar(gt_boxes, rect, Trv2c)
+            difficulty = annos["difficulty"]
+            input_dict.update({
+                'gt_boxes': gt_boxes,
+                'gt_names': gt_names,
+                'difficulty': difficulty,
+            })
+            if 'group_ids' in annos:
+                input_dict['group_ids'] = annos["group_ids"]
+
         out_size_factor = model_cfg.rpn.layer_strides[0] // model_cfg.rpn.upsample_strides[0]
+        print("RGB_embedding: ", self.RGB_embedding)
+
         example = prep_pointcloud(
             input_dict=input_dict,
             root_path=str(self.root_path),
@@ -51,13 +81,15 @@ class InferenceContext:
             create_targets=False,
             shuffle_points=input_cfg.shuffle_points,
             generate_bev=False,
+            remove_outside_points=False,
             without_reflectivity=model_cfg.without_reflectivity,
             num_point_features=model_cfg.num_point_features,
             anchor_area_threshold=input_cfg.anchor_area_threshold,
             anchor_cache=self.anchor_cache,
             out_size_factor=out_size_factor,
             out_dtype=np.float32,
-            num_classes=model_cfg.num_class)
+            num_classes=model_cfg.num_class,
+            RGB_embedding=self.RGB_embedding)
         example["image_idx"] = info['image_idx']
         example["image_shape"] = input_dict["image_shape"]
         example["points"] = points

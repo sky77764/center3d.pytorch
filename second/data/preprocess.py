@@ -83,7 +83,7 @@ def prep_pointcloud(input_dict,
                     anchor_area_threshold=1,
                     gt_points_drop=0.0,
                     gt_drop_max_keep=10,
-                    remove_points_after_sample=True,
+                    remove_points_after_sample=False,
                     anchor_cache=None,
                     remove_environment=False,
                     random_crop=False,
@@ -101,6 +101,7 @@ def prep_pointcloud(input_dict,
     """convert point cloud to voxels, create targets if ground truths 
     exists.
     """
+    # prep_pointcloud_start = time.time()
     points = input_dict["points"]
     # if training:
     gt_boxes = input_dict["gt_boxes"]
@@ -115,9 +116,13 @@ def prep_pointcloud(input_dict,
     P2 = input_dict["P2"]
     unlabeled_training = unlabeled_db_sampler is not None
     image_idx = input_dict["image_idx"]
-    if RGB_embedding:
-        RGB_image = cv2.imread(input_dict['image_path'])
 
+    # t1 = time.time() - prep_pointcloud_start
+    if shuffle_points:
+        # shuffle is a little slow.
+        np.random.shuffle(points)
+    # t2 = time.time() - prep_pointcloud_start
+    # print("t2-t1: ", t2-t1)     # 0.035
 
     if reference_detections is not None:
         C, R, T = box_np_ops.projection_matrix_to_CRT_kitti(P2)
@@ -130,7 +135,7 @@ def prep_pointcloud(input_dict,
         masks = points_in_convex_polygon_3d_jit(points, surfaces)
         points = points[masks.any(-1)]
 
-    if remove_outside_points and not lidar_input:
+    if remove_outside_points:# and not lidar_input:
         image_shape = input_dict["image_shape"]
         points = box_np_ops.remove_outside_points(points, rect, Trv2c, P2,
                                                   image_shape)
@@ -142,6 +147,7 @@ def prep_pointcloud(input_dict,
         if group_ids is not None:
             group_ids = group_ids[selected]
         points = prep.remove_points_outside_boxes(points, gt_boxes)
+
     # if training:
         # print(gt_names)
     selected = kitti.drop_arrays_by_name(gt_names, ["DontCare"])
@@ -150,7 +156,8 @@ def prep_pointcloud(input_dict,
     difficulty = difficulty[selected]
     if group_ids is not None:
         group_ids = group_ids[selected]
-
+    # t3 = time.time() - prep_pointcloud_start
+    # print("t3-t2: ", t3 - t2)   # 0.0002
     gt_boxes = box_np_ops.box_camera_to_lidar(gt_boxes, rect, Trv2c)
     if remove_unknown:
         remove_mask = difficulty == -1
@@ -167,8 +174,34 @@ def prep_pointcloud(input_dict,
             group_ids = group_ids[keep_mask]
     gt_boxes_mask = np.array(
         [n in class_names for n in gt_names], dtype=np.bool_)
+    # t4 = time.time() - prep_pointcloud_start
+    # print("t4-t3: ", t4 - t3)   # 0.001
+    if RGB_embedding:
+        RGB_image = cv2.imread(input_dict['image_path'])
+        points_camera = box_np_ops.box_lidar_to_camera(points[:, :3], rect, Trv2c)
+        points_to_image_idx = box_np_ops.project_to_image(points_camera, P2)
+        points_to_image_idx = points_to_image_idx.astype(int)
+        mask = box_np_ops.remove_points_outside_image(RGB_image, points_to_image_idx)
+        points = points[mask]
+        points_to_image_idx = points_to_image_idx[mask]
+        BGR = RGB_image[points_to_image_idx[:,1], points_to_image_idx[:,0]]
+
+        points = np.concatenate((points, BGR), axis=1)
+
+        # test_mask = points_camera[mask][:, 0] < 0
+        # test_image_idx = points_to_image_idx[test_mask]
+        # RGB_image[test_image_idx[:, 1], test_image_idx[:, 0]] = [255, 0, 0]
+        # test_mask = points_camera[mask][:, 0] >= 0
+        # test_image_idx = points_to_image_idx[test_mask]
+        # RGB_image[test_image_idx[:, 1], test_image_idx[:, 0]] = [0, 0, 255]
+        # print()
+    # t5 = time.time() - prep_pointcloud_start
+    # print("t5-t4: ", t5 - t4)   # 0.019
     # TODO
-    if db_sampler is not None and training and not RGB_embedding:
+    if db_sampler is not None and training:# and not RGB_embedding:
+        if RGB_embedding:
+            num_point_features += 3
+
         sampled_dict = db_sampler.sample_all(
             root_path,
             gt_boxes,
@@ -179,6 +212,8 @@ def prep_pointcloud(input_dict,
             rect=rect,
             Trv2c=Trv2c,
             P2=P2)
+        # t_sample_all = time.time() - prep_pointcloud_start
+        # print("t_sample_all - t5: ", t_sample_all - t5)     # 3.83
 
         if sampled_dict is not None:
             sampled_gt_names = sampled_dict["gt_names"]
@@ -201,29 +236,15 @@ def prep_pointcloud(input_dict,
 
             points = np.concatenate([sampled_points, points], axis=0)
 
-    if RGB_embedding:
-        points_camera = box_np_ops.box_lidar_to_camera(points[:, :3], rect, Trv2c)
-        points_to_image_idx = box_np_ops.project_to_image(points_camera, P2)
-        points_to_image_idx = points_to_image_idx.astype(int)
-        mask = box_np_ops.remove_points_outside_image(RGB_image, points_to_image_idx)
-        points = points[mask]
-        points_to_image_idx = points_to_image_idx[mask]
-
-        # test_mask = points_camera[mask][:, 0] < 0
-        # test_image_idx = points_to_image_idx[test_mask]
-        # RGB_image[test_image_idx[:, 1], test_image_idx[:, 0]] = [255, 0, 0]
-        # test_mask = points_camera[mask][:, 0] >= 0
-        # test_image_idx = points_to_image_idx[test_mask]
-        # RGB_image[test_image_idx[:, 1], test_image_idx[:, 0]] = [0, 0, 255]
-        # print()
-
+            # t_sample_all2 = time.time() - prep_pointcloud_start
+            # print("t_sample_all2 - t_sample_all: ", t_sample_all2 - t_sample_all)   # 0.0002
 
 
     # unlabeled_mask = np.zeros((gt_boxes.shape[0], ), dtype=np.bool_)
-    if without_reflectivity and training:
-        used_point_axes = list(range(num_point_features))
-        used_point_axes.pop(3)
-        points = points[:, used_point_axes]
+    # if without_reflectivity and training:
+    #     used_point_axes = list(range(num_point_features))
+    #     used_point_axes.pop(3)
+    #     points = points[:, used_point_axes]
     # pc_range = voxel_generator.point_cloud_range
     # bev_only = False
     # if bev_only:  # set z and h to limits
@@ -239,6 +260,8 @@ def prep_pointcloud(input_dict,
             global_random_rot_range=global_random_rot_range,
             group_ids=group_ids,
             num_try=100)
+        # t_noise = time.time() - prep_pointcloud_start
+        # print("t_noise - t_sample_all2: ", t_noise - t_sample_all2)     # 12.01
     # should remove unrelated objects after noise per object
     gt_boxes = gt_boxes[gt_boxes_mask]
     gt_names = gt_names[gt_boxes_mask]
@@ -247,15 +270,17 @@ def prep_pointcloud(input_dict,
     gt_classes = np.array(
         [class_names.index(n) + 1 for n in gt_names], dtype=np.int32)
 
+    # t6 = time.time() - prep_pointcloud_start
+    # print("t6-t5: ", t6 - t5)   # 16.0
+
     if training:
         gt_boxes, points = prep.random_flip(gt_boxes, points)
-    # gt_boxes, points = prep.global_rotation(
-    #     gt_boxes, points, rotation=global_rotation_noise)
-    # gt_boxes, points = prep.global_scaling_v2(gt_boxes, points,
-    #                                           *global_scaling_noise)
-
-    # Global translation
-    # gt_boxes, points = prep.global_translate(gt_boxes, points, global_loc_noise_std)
+        gt_boxes, points = prep.global_rotation(
+            gt_boxes, points, rotation=global_rotation_noise)
+        gt_boxes, points = prep.global_scaling_v2(gt_boxes, points,
+                                                  *global_scaling_noise)
+        # Global translation
+        gt_boxes, points = prep.global_translate(gt_boxes, points, global_loc_noise_std)
 
     # bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
     bv_range = [0, -40, 70.4, 40]
@@ -274,13 +299,12 @@ def prep_pointcloud(input_dict,
     #     # shuffle is a little slow.
     #     np.random.shuffle(points)
 
-    if RGB_embedding:
-        voxels, coordinates, num_points = voxel_generator.generate(
-            points, max_voxels, RGB_embedding=RGB_image[points_to_image_idx[:,1], points_to_image_idx[:,0]])
-    else:
-        voxels, coordinates, num_points = voxel_generator.generate(
-            points, max_voxels)
-
+    # t7 = time.time() - prep_pointcloud_start
+    # print("t7-t6: ", t7 - t6)   # 1.95
+    voxels, coordinates, num_points = voxel_generator.generate(
+        points, max_voxels, RGB_embedding=RGB_embedding)
+    # t8 = time.time() - prep_pointcloud_start
+    # print("t8-t7: ", t8 - t7)   # 2.0
     voxel_size = voxel_generator.voxel_size
     grid_size = voxel_generator.grid_size
     pc_range = copy.deepcopy(voxel_generator.point_cloud_range)
@@ -305,7 +329,8 @@ def prep_pointcloud(input_dict,
     spherical_gt_boxes[:num_objs, 1] /= voxel_size[1]
 
     spherical_gt_boxes, num_objs = filter_outside_range(spherical_gt_boxes, num_objs, grid_size)
-
+    # t9 = time.time() - prep_pointcloud_start
+    # print("t9-t8: ", t9 - t8)   # 0.0005
     example = {
         'voxels': voxels,
         'num_points': num_points,
@@ -343,13 +368,15 @@ def prep_pointcloud(input_dict,
 
 
         draw_gaussian = draw_umich_gaussian
+        # center heatmap
+        # radius = int(image_h / 30)
+        radius = int(image_h / 25)
 
         for k in range(num_objs):
             gt_3d_box = spherical_gt_boxes[k]
             cls_id = 0
 
-            # center heatmap
-            radius = int(image_h / 30)
+            # print('heatmap gaussian radius: ' + str(radius))
             ct = np.array([gt_3d_box[0], gt_3d_box[1]], dtype=np.float32)
             ct_int = ct.astype(np.int32)
             draw_gaussian(hm[cls_id], ct, radius)
@@ -378,6 +405,8 @@ def prep_pointcloud(input_dict,
             'rot_mask': rot_mask, 'reg': reg
         })
 
+    # t10 = time.time() - prep_pointcloud_start
+    # print("total: ", t10)       # 19.58
     return example
 
 

@@ -16,7 +16,7 @@ def _spherical_points_to_voxel_reverse_kernel(spherical_points,
                                     coors,
                                     max_points=35,
                                     max_voxels=20000,
-                                    RGB_embedding=None):
+                                    RGB_embedding=True):
     # put all computations to one loop.
     # we shouldn't create large array in main jit code, otherwise
     # reduce performance
@@ -30,6 +30,10 @@ def _spherical_points_to_voxel_reverse_kernel(spherical_points,
     phi_min, theta_min = coors_range[0], coors_range[1]
     phi_range, theta_range = coors_range[3], coors_range[4]
     distance_max = coors_range[5]
+
+    # print("phi2: ", coors_range[0], coors_range[3])
+    # print("theta2: ", coors_range[1], coors_range[4])
+    # print("distance2: ", distance_max)
 
     x_min, y_min, z_min = cartesian_coors_range[0], cartesian_coors_range[1], cartesian_coors_range[2]
     x_max, y_max, z_max = cartesian_coors_range[3], cartesian_coors_range[4], cartesian_coors_range[5]
@@ -78,10 +82,10 @@ def _spherical_points_to_voxel_reverse_kernel(spherical_points,
         num = num_points_per_voxel[voxelidx]
         if num < max_points:
             spherical_points[i, 2] = spherical_points[i, 2] / distance_max
-            if RGB_embedding is not None:
-                voxels[voxelidx, num] = np.concatenate((points[i, :3], spherical_points[i, 2:], RGB_embedding[i, :]/255.0), axis=0)
+            if RGB_embedding:
+                voxels[voxelidx, num] = np.concatenate((points[i, :3], spherical_points[i, 2:4], points[i, 4:]/255.0), axis=0)
             else:
-                voxels[voxelidx, num] = np.concatenate((points[i, :3], spherical_points[i, 2:]), axis=0)
+                voxels[voxelidx, num] = np.concatenate((points[i, :3], spherical_points[i, 2:4]), axis=0)
             num_points_per_voxel[voxelidx] += 1
     # sum = num_points_per_voxel.sum()
     return voxel_num
@@ -243,7 +247,7 @@ def points_to_voxel(points,
                      reverse_index=True,
                      max_voxels=20000,
                      spherical_coor=False,
-                     RGB_embedding=None):
+                     RGB_embedding=False):
     """convert kitti points(N, >=3) to voxels. This version calculate
     everything in one loop. now it takes only 4.2ms(complete point cloud) 
     with jit and 3.2ghz cpu.(don't calculate other features)
@@ -283,6 +287,9 @@ def points_to_voxel(points,
         coors_range[3] = phi_max
         coors_range[4] = theta_max
         voxel_size = coors_range[3:] / grid_size
+        # print("phi: ", phi_min, phi_max)
+        # print("theta: ", theta_min, theta_max)
+        # print("voxel_size: ", voxel_size)
 
 
     if not isinstance(voxel_size, np.ndarray):
@@ -304,7 +311,7 @@ def points_to_voxel(points,
     num_points_per_voxel = np.zeros(shape=(max_voxels, ), dtype=np.int32)
     coor_to_voxelidx = -np.ones(shape=voxelmap_shape, dtype=np.int32)
     voxel_num_channel = 5
-    if RGB_embedding is not None:
+    if RGB_embedding:
         voxel_num_channel += 3
     voxels = np.zeros(
         shape=(max_voxels, max_points, voxel_num_channel), dtype=points.dtype)

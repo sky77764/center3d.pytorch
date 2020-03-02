@@ -1,0 +1,8 @@
+/home/js/git/center3d.pytorch/second/output/fv_xyzdrrgb2/eval_results/step_293807/result.pkl
+/home/js/git/center3d.pytorch/second/configs/forwardview/car/xyres_16.proto
+/home/js/git/center3d.pytorch/second/output/fv_xyzdrrgb2/voxelnet-293807.tckpt
+
+
+/home/js/git/second.pytorch/second/output/default2/eval_results/step_296960/result.pkl
+/home/js/git/second.pytorch/second/configs/pointpillars/car/xyres_16.proto
+/home/js/git/second.pytorch/second/output/default2/voxelnet-296960.tckpt

@@ -1,5 +1,6 @@
 import io as sysio
 import json
+import pathlib
 import os
 import pickle
 import sys
@@ -812,6 +813,7 @@ class KittiViewer(QMainWindow):
         self.json_setting.set("latest_info_path", str(info_path))
         with open(info_path, 'rb') as f:
             self.kitti_infos = pickle.load(f)
+        # print("self.kitti_infos: ", self.kitti_infos)
         db_infos_path = Path(self.root_path) / "kitti_dbinfos_train.pkl"
         if db_infos_path.exists():
             with open(db_infos_path, 'rb') as f:
@@ -895,6 +897,7 @@ class KittiViewer(QMainWindow):
         # class_names = self.w_config.get("UsedClass")
         # class_names_group = [["trailer", "tractor"]]
 
+        # print("self.points: ", self.points)
         if self.db_sampler is not None:
             # gt_boxes_mask = np.array(
             #     [n in class_names for n in self.gt_names], dtype=np.bool_)
@@ -948,6 +951,8 @@ class KittiViewer(QMainWindow):
                 self.group_ids = self.group_ids[gt_boxes_mask]
         else:
             self.error("you enable sample but not provide a database")
+
+        # print("self.points: ", self.points)
 
     def data_augmentation(self):
         if self.kitti_info is None:
@@ -1161,7 +1166,10 @@ class KittiViewer(QMainWindow):
                 self.current_image = None
         else:
             self.current_image = None
-        v_path = str(self.root_path / self.kitti_info['velodyne_path'])
+        # v_path = str(self.root_path / self.kitti_info['velodyne_path'])
+        v_path = pathlib.Path(self.root_path) /  self.kitti_info['velodyne_path']
+        v_path = v_path.parent.parent / (
+                v_path.parent.stem + "_reduced") / v_path.name
         num_features = 4
         if 'pointcloud_num_features' in self.kitti_info:
             num_features = self.kitti_info['pointcloud_num_features']
@@ -1176,6 +1184,7 @@ class KittiViewer(QMainWindow):
         if 'img_shape' in self.kitti_info:
             image_shape = self.kitti_info['img_shape']
             # self.info("num_points before remove:", self.points.shape[0])
+            # print("self.w_config.get(RemoveOutsidePoint): ", self.w_config.get("RemoveOutsidePoint") )
             if self.w_config.get("RemoveOutsidePoint"):
                 self.points = box_np_ops.remove_outside_points(
                     self.points, rect, Trv2c, P2, image_shape)
