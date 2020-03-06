@@ -33,7 +33,8 @@ from functools import partial
 def build(input_reader_config,
           model_config,
           training,
-          voxel_generator,
+          fv_generator,
+          # voxel_generator,
           target_assigner=None,
           RGB_embedding=False):
     """Builds a tensor dictionary based on the InputReader config.
@@ -65,7 +66,8 @@ def build(input_reader_config,
     u_db_sampler = None
     if len(u_db_sampler_cfg.sample_groups) > 0:  # enable sample
         u_db_sampler = dbsampler_builder.build(u_db_sampler_cfg)
-    grid_size = voxel_generator.grid_size
+    # grid_size = voxel_generator.grid_size
+    grid_size = fv_generator.grid_size
     # [352, 400]
     feature_map_size = grid_size[:2] // out_size_factor
     feature_map_size = [*feature_map_size, 1][::-1]
@@ -74,7 +76,8 @@ def build(input_reader_config,
         prep_pointcloud,
         root_path=cfg.kitti_root_path,
         class_names=list(cfg.class_names),
-        voxel_generator=voxel_generator,
+        # voxel_generator=voxel_generator,
+        fv_generator=fv_generator,
         target_assigner=target_assigner,
         training=training,
         max_voxels=cfg.max_number_of_voxels,

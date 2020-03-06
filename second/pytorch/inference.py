@@ -17,7 +17,7 @@ class TorchInferenceContext(InferenceContext):
         super().__init__()
         self.net = None
         self.anchor_cache = None
-        self.RGB_embedding = True
+        self.RGB_embedding = False
 
     def _build(self):
         config = self.config
@@ -25,26 +25,30 @@ class TorchInferenceContext(InferenceContext):
         model_cfg = config.model.second
         train_cfg = config.train_config
         batch_size = 1
-        voxel_generator = voxel_builder.build(model_cfg.voxel_generator)
-        bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
-        grid_size = voxel_generator.grid_size
-        self.voxel_generator = voxel_generator
+        # voxel_generator = voxel_builder.build(model_cfg.voxel_generator)
+        # bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
+        # grid_size = voxel_generator.grid_size
+        # self.voxel_generator = voxel_generator
+        fv_generator = voxel_builder.build(model_cfg.voxel_generator)
+        bv_range = fv_generator.cartesian_coord_range[[0, 1, 3, 4]]
+        fv_dim = fv_generator.fv_dim
+        self.fv_generator = fv_generator
+
         vfe_num_filters = list(model_cfg.voxel_feature_extractor.num_filters)
 
-        box_coder = box_coder_builder.build(model_cfg.box_coder)
-        target_assigner_cfg = model_cfg.target_assigner
-        target_assigner = target_assigner_builder.build(
-            target_assigner_cfg, bv_range, box_coder)
-        self.target_assigner = target_assigner
+        # box_coder = box_coder_builder.build(model_cfg.box_coder)
+        # target_assigner_cfg = model_cfg.target_assigner
+        # target_assigner = target_assigner_builder.build(
+        #     target_assigner_cfg, bv_range, box_coder)
+        # self.target_assigner = target_assigner
         out_size_factor = model_cfg.rpn.layer_strides[0] // model_cfg.rpn.upsample_strides[0]
-        self.net = second_builder.build(model_cfg, voxel_generator,
-                                          target_assigner, RGB_embedding=self.RGB_embedding)
+        self.net = second_builder.build(model_cfg, fv_generator, RGB_embedding=self.RGB_embedding)
         self.net.cuda().eval()
         if train_cfg.enable_mixed_precision:
             self.net.half()
             self.net.metrics_to_float()
             self.net.convert_norm_to_float(self.net)
-        feature_map_size = grid_size[:2] // out_size_factor
+        feature_map_size = fv_dim[:2] // out_size_factor
         feature_map_size = [*feature_map_size, 1][::-1]
         # ret = target_assigner.generate_anchors(feature_map_size)
         # anchors = ret["anchors"]

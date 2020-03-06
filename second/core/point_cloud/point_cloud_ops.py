@@ -16,7 +16,7 @@ def _spherical_points_to_voxel_reverse_kernel(spherical_points,
                                     coors,
                                     max_points=35,
                                     max_voxels=20000,
-                                    RGB_embedding=True):
+                                    RGB_embedding=False):
     # put all computations to one loop.
     # we shouldn't create large array in main jit code, otherwise
     # reduce performance

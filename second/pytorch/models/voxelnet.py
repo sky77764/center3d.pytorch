@@ -319,7 +319,7 @@ class MiddleExtractor(nn.Module):
 
         return ret
 
-
+'''
 class RPN(nn.Module):
     def __init__(self,
                  use_norm=True,
@@ -487,7 +487,7 @@ class RPN(nn.Module):
             ret_dict["dir_cls_preds"] = dir_cls_preds
         return ret_dict
 
-
+'''
 class LossNormType(Enum):
     NormByNumPositives = "norm_by_num_positives"
     NormByNumExamples = "norm_by_num_examples"
@@ -498,81 +498,20 @@ class VoxelNet(nn.Module):
     def __init__(self,
                  output_shape,
                  num_class=2,
-                 num_input_features=4,
-                 vfe_class_name="VoxelFeatureExtractor",
-                 vfe_num_filters=[32, 128],
-                 with_distance=False,
-                 middle_class_name="SparseMiddleExtractor",
-                 middle_num_filters_d1=[64],
-                 middle_num_filters_d2=[64, 64],
-                 rpn_class_name="RPN",
-                 rpn_layer_nums=[3, 5, 5],
-                 rpn_layer_strides=[2, 2, 2],
-                 rpn_num_filters=[128, 128, 256],
-                 rpn_upsample_strides=[1, 2, 4],
-                 rpn_num_upsample_filters=[256, 256, 256],
-                 use_norm=True,
-                 use_groupnorm=False,
-                 num_groups=32,
-                 use_sparse_rpn=False,
-                 use_direction_classifier=True,
                  use_sigmoid_score=False,
                  encode_background_as_zeros=True,
-                 use_rotate_nms=True,
-                 multiclass_nms=False,
-                 nms_score_threshold=0.5,
-                 nms_pre_max_size=1000,
-                 nms_post_max_size=20,
-                 nms_iou_threshold=0.1,
-                 target_assigner=None,
-                 use_bev=False,
-                 lidar_only=False,
-                 cls_loss_weight=1.0,
-                 loc_loss_weight=1.0,
-                 pos_cls_weight=1.0,
-                 neg_cls_weight=1.0,
-                 direction_loss_weight=1.0,
-                 loss_norm_type=LossNormType.NormByNumPositives,
-                 encode_rad_error_by_sin=False,
-                 loc_loss_ftor=None,
-                 cls_loss_ftor=None,
-                 voxel_size=(0.2, 0.2, 4),
-                 pc_range=(0, -40, -3, 70.4, 40, 1),
                  name='voxelnet',
                  save_path=None,
-                 RGB_embedding=True):
+                 RGB_embedding=False):
+
         super().__init__()
         self.name = name
         self._num_class = num_class
-        self._use_rotate_nms = use_rotate_nms
-        self._multiclass_nms = multiclass_nms
-        self._nms_score_threshold = nms_score_threshold
-        self._nms_pre_max_size = nms_pre_max_size
-        self._nms_post_max_size = nms_post_max_size
-        self._nms_iou_threshold = nms_iou_threshold
-        self._use_sigmoid_score = use_sigmoid_score
         self._encode_background_as_zeros = encode_background_as_zeros
-        self._use_sparse_rpn = use_sparse_rpn
-        self._use_direction_classifier = use_direction_classifier
-        self._use_bev = use_bev
         self._total_forward_time = 0.0
         self._total_postprocess_time = 0.0
         self._total_inference_count = 0
-        self._num_input_features = num_input_features
-        # self._box_coder = target_assigner.box_coder
-        self._lidar_only = lidar_only
-        self.target_assigner = target_assigner
-        self._pos_cls_weight = pos_cls_weight
-        self._neg_cls_weight = neg_cls_weight
-        self._encode_rad_error_by_sin = encode_rad_error_by_sin
-        self._loss_norm_type = loss_norm_type
-        self._dir_loss_ftor = WeightedSoftmaxClassificationLoss()
 
-        self._loc_loss_ftor = loc_loss_ftor
-        self._cls_loss_ftor = cls_loss_ftor
-        self._direction_loss_weight = direction_loss_weight
-        self._cls_loss_weight = cls_loss_weight
-        self._loc_loss_weight = loc_loss_weight
         self._save_path = save_path
         self._RGB_embedding = RGB_embedding
 
@@ -583,39 +522,12 @@ class VoxelNet(nn.Module):
         self.crit_reg = L1Loss()
         self.crit_rot = BinRotLoss()
 
-        vfe_class_dict = {
-            "VoxelFeatureExtractor": VoxelFeatureExtractor,
-            "VoxelFeatureExtractorV2": VoxelFeatureExtractorV2,
-            "PillarFeatureNet": PillarFeatureNet,
-            "ForwardViewFeatureNet": ForwardViewFeatureNet
-        }
-        vfe_class = vfe_class_dict[vfe_class_name]
-        # if vfe_class_name == "ForwardViewFeatureNet":
-        self.voxel_feature_extractor = vfe_class(
-            num_input_features,
-            use_norm,
-            num_filters=vfe_num_filters,
-            with_distance=with_distance,
-            voxel_size=voxel_size,
-            pc_range=pc_range
-        )
-
-        # print("middle_class_name", middle_class_name)
-        # if middle_class_name == "ForwardViewScatter":
-            # self.middle_feature_extractor = ForwardViewScatter(output_shape=output_shape,
-            #                                                     num_input_features=vfe_num_filters[-1])
         input_channel = 5
         if self._RGB_embedding:
             input_channel += 3
-        self.middle_feature_extractor = ForwardViewScatter(output_shape=output_shape,
-                                                           num_input_features=input_channel)
-        num_rpn_input_filters = self.middle_feature_extractor.nchannels
-
-
         self._down_ratio = 1
         heads = {'hm':num_class, 'dep':1, 'rot':8, 'dim':3, 'reg':2}
-        self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256, down_ratio=self._down_ratio, input_channel=num_rpn_input_filters)
-
+        self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256, down_ratio=self._down_ratio, input_channel=input_channel)
 
         self.rpn_acc = metrics.Accuracy(
             dim=-1, encode_background_as_zeros=encode_background_as_zeros)
@@ -632,7 +544,7 @@ class VoxelNet(nn.Module):
         self.rpn_total_loss = metrics.Scalar()
         self.register_buffer("global_step", torch.LongTensor(1).zero_())
 
-        self.debug_mode = False
+        self.debug_mode = True
         self.save_imgs = False
         if self.debug_mode:
             self.debugger = Debugger(theme='black', num_classes=self._num_class, down_ratio=self._down_ratio)
@@ -684,13 +596,11 @@ class VoxelNet(nn.Module):
         spherical_points = batch_canvas.cpu().numpy()
         return spherical_points
 
-    def make_input_img(self, voxels, coords, batch_size, batch_imgidx, RGB_embedding=False):
-        spherical_points = self.get_fvmap(voxels, coords, batch_size, RGB_embedding=RGB_embedding)
-
+    def make_input_img(self, fv_image, batch_size, batch_imgidx, RGB_embedding=False):
         for i in range(batch_size):
-            # fvmap = np.expand_dims(spherical_points[i], axis=0)
-            fvmap = spherical_points[i]
+            fvmap = fv_image.detach().cpu().numpy()[i]
             if not RGB_embedding:
+                fvmap = fvmap[3:4, :, :]
                 mask = fvmap != 0
                 fvmap[mask] -= fvmap[mask].min()
                 fvmap[mask] /= fvmap[mask].max()
@@ -704,11 +614,11 @@ class VoxelNet(nn.Module):
 
 
 
-    def make_hm_img(self, hm, batch_size, batch_imgidx):
+    def make_gt_img(self, hm, batch_size, batch_imgidx, id):
         for i in range(batch_size):
             heatmap = hm[i]
             colormap = self.debugger.gen_colormap(heatmap)
-            self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]) + '_HM')
+            self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]) + '_' + id)
 
 
 
@@ -717,34 +627,19 @@ class VoxelNet(nn.Module):
         """
         # forward_time = time.time()
         # print("@@@@@@@@@@@@@@@ Forward")
-        voxels = example["voxels"]
-        num_points = example["num_points"]
-        coors = example["coordinates"]
-        # batch_anchors = example["anchors"]
-        # batch_size_dev = batch_anchors.shape[0]
+
         batch_size_dev = example['image_idx'].shape[0]
         t = time.time()
-        # features: [num_voxels, max_num_points_per_voxel, 7]
-        # num_points: [num_voxels]
-        # coors: [num_voxels, 4]
-        self.voxel_feature_extractor.update_values(example["voxel_size"], example["pc_range"])
-        voxel_features = self.voxel_feature_extractor(voxels, num_points, coors, batch_size_dev)
-        # t1 = time.time() - forward_time
-        # print("t1: ", t1)   # 0.0002
-        spatial_features = self.middle_feature_extractor(
-            voxel_features, coors, batch_size_dev)
-        # t2 = time.time() - forward_time
-        # print("t2 - t1: ", t2 - t1)     # 0.003
-        preds_dict = self.rpn(spatial_features)
+
+        fv_image = example['fv_image']
+        preds_dict = self.rpn(fv_image)
         self._total_forward_time += time.time() - t
-        # t3 = time.time() - forward_time
-        # print("t3 - t2: ", t3 - t2)     # 0.249
         if self.training:
             if self.debug_mode:
-                self.make_input_img(example['voxels'], example['coordinates'], batch_size_dev, example['image_idx'])
-                self.make_input_img(example['voxels'], example['coordinates'], batch_size_dev, example['image_idx'],
-                                    RGB_embedding=self._RGB_embedding)
-                self.make_hm_img(example['hm'], batch_size_dev, example['image_idx'])
+                self.make_input_img(fv_image, batch_size_dev, example['image_idx'])
+                self.make_gt_img(example['hm'], batch_size_dev, example['image_idx'], id='HM')
+                # dep = np.transpose(example['dep'], (0, 3, 2, 1))
+                # self.make_gt_img(dep, batch_size_dev, example['image_idx'], id='DEP')
 
                 if self._RGB_embedding:
                     for i in range(batch_size_dev):
@@ -764,8 +659,8 @@ class VoxelNet(nn.Module):
                         continue
                     spherical_gt_box = torch.from_numpy(spherical_gt_boxes[i, :num_obj, :])
 
-                    phi = spherical_gt_box[:, 0] * example['voxel_size'][i][0] + example['meta'][i]['phi_min']
-                    theta = spherical_gt_box[:, 1] * example['voxel_size'][i][1] + example['meta'][i]['theta_min']
+                    phi = spherical_gt_box[:, 0] * example['grid_size'][i][0] + example['meta'][i]['phi_min']
+                    theta = spherical_gt_box[:, 1] * example['grid_size'][i][1] + example['meta'][i]['theta_min']
                     depth = spherical_gt_box[:, 2]
                     spherical_gt_box[:, 0] = torch.sin(theta) * torch.cos(phi) * depth
                     spherical_gt_box[:, 1] = torch.sin(theta) * torch.sin(phi) * depth
@@ -779,9 +674,9 @@ class VoxelNet(nn.Module):
                     box_corners = box_torch_ops.center_to_corner_box3d(
                         locs, dims, angles, camera_box_origin, axis=2)
                     box_corners_in_image = box_torch_ops.project_to_fv_image(
-                        box_corners, example['voxel_size'][i], example['meta'][i])
+                        box_corners, example['grid_size'][i], example['meta'][i])
                     box_centers_in_image = box_torch_ops.project_to_fv_image(
-                        locs, example['voxel_size'][i], example['meta'][i])
+                        locs, example['grid_size'][i], example['meta'][i])
 
                     for j in range(num_obj):
                         self.debugger.add_3d_detection2(box_corners_in_image[j], c=[0, 255, 0],
@@ -806,12 +701,17 @@ class VoxelNet(nn.Module):
             label_ind = torch.from_numpy(example['ind']).cuda()
             label_reg_mask = torch.from_numpy(example['reg_mask']).cuda()
             label_rot_mask = torch.from_numpy(example['rot_mask']).cuda()
+            # label_fg_mask = torch.from_numpy(example['fg_mask']).cuda()
 
             hm_loss = self.crit(output['hm'], label_hm)
+            # dep_loss = self.crit_reg(output['dep'], label_fg_mask, label_dep, div=True)
+            # dim_loss = self.crit_reg(output['dim'], label_fg_mask, label_dim)
+            # rot_loss = self.crit_rot(output['rot'], label_fg_mask, label_rotbin, label_rotres)
+            # off_loss = self.crit_reg(output['reg'], label_fg_mask, label_reg)
             dep_loss = self.crit_reg(output['dep'], label_reg_mask, label_ind, label_dep)
             dim_loss = self.crit_reg(output['dim'], label_reg_mask, label_ind, label_dim)
             rot_loss = self.crit_rot(output['rot'], label_rot_mask, label_ind, label_rotbin, label_rotres)
-            off_loss = self.crit_reg(output['reg'], label_rot_mask, label_ind, label_reg)
+            off_loss = self.crit_reg(output['reg'], label_reg_mask, label_ind, label_reg)
             loss = self.hm_weight * hm_loss + self.dep_weight * dep_loss + \
                    self.dim_weight * dim_loss + self.rot_weight * rot_loss + \
                    self.off_weight * off_loss
@@ -855,16 +755,16 @@ class VoxelNet(nn.Module):
                           output['dim'], reg=reg, K=40)
         if self.debug_mode:
             # self.make_input_img(example['voxels'], example['coordinates'], batch_size, batch_imgidx)
-            self.make_input_img(example['voxels'], example['coordinates'], batch_size, example['image_idx'],
-                                RGB_embedding=self._RGB_embedding)
-
-            self.make_hm_img(output['hm'].detach().cpu().numpy(), batch_size, example['image_idx'])
+            # self.make_input_img(example['voxels'], example['coordinates'], batch_size, example['image_idx'],
+            #                     RGB_embedding=self._RGB_embedding)
+            self.make_input_img(example['fv_image'], batch_size, example['image_idx'])
+            self.make_gt_img(output['hm'].detach().cpu().numpy(), batch_size, example['image_idx'], id='HM')
 
             # for i in range(batch_size):
             #     pos_mask = dets[i, :, 2] > score_thresh
             #     self.debugger.add_points(dets[i,:,:2][pos_mask].view(1, -1, 2).detach().cpu().numpy().astype(np.int32), img_id='input_'+str(i))
 
-        dets = self.post_process(dets, example['meta'], example['voxel_size'])
+        dets = self.post_process(dets, example['meta'], example['grid_size'])
 
         predictions_dicts = []
 
@@ -914,7 +814,7 @@ class VoxelNet(nn.Module):
                         locs_fv, dims_fv, angles_fv, camera_box_origin_fv, axis=2)
 
                     box_corners_in_fv_image = box_torch_ops.project_to_fv_image(
-                        box_corners_fv, example['voxel_size'][i], example['meta'][i])
+                        box_corners_fv, example['grid_size'][i], example['meta'][i])
                     # box_centers_in_image = box_torch_ops.project_to_fv_image(
                     #     locs, example['voxel_size'][i], example['meta'][i])
 
@@ -975,8 +875,8 @@ class VoxelNet(nn.Module):
                     continue
                 spherical_gt_box = torch.from_numpy(spherical_gt_boxes[i, :num_obj, :])
 
-                phi = spherical_gt_box[:, 0] * example['voxel_size'][i][0] + example['meta'][i]['phi_min']
-                theta = spherical_gt_box[:, 1] * example['voxel_size'][i][1] + example['meta'][i]['theta_min']
+                phi = spherical_gt_box[:, 0] * example['grid_size'][i][0] + example['meta'][i]['phi_min']
+                theta = spherical_gt_box[:, 1] * example['grid_size'][i][1] + example['meta'][i]['theta_min']
                 depth = spherical_gt_box[:, 2]
                 spherical_gt_box[:, 0] = torch.sin(theta) * torch.cos(phi) * depth
                 spherical_gt_box[:, 1] = torch.sin(theta) * torch.sin(phi) * depth
@@ -990,7 +890,7 @@ class VoxelNet(nn.Module):
                 box_corners = box_torch_ops.center_to_corner_box3d(
                     locs, dims, angles, camera_box_origin, axis=2)
                 box_corners_in_fv_image = box_torch_ops.project_to_fv_image(
-                    box_corners, example['voxel_size'][i], example['meta'][i])
+                    box_corners, example['grid_size'][i], example['meta'][i])
                 # box_centers_in_image = box_torch_ops.project_to_fv_image(
                 #     locs, example['voxel_size'][i], example['meta'][i])
 
@@ -998,7 +898,7 @@ class VoxelNet(nn.Module):
                     # self.debugger.add_3d_detection2(box_corners_in_fv_image[j], c= [0,255, 0], img_id=str(batch_imgidx[i])+'_D')
                     # self.debugger.add_point(box_centers_in_image[j], c= (0, 255, 0), img_id=str(batch_imgidx[i])+'_D')
                     self.debugger.add_3d_detection2(box_corners_in_fv_image[j], c=[0, 255, 0],
-                                                    img_id=str(batch_imgidx[i]) + '_RGB')
+                                                    img_id=str(batch_imgidx[i]) + '_D')
                     # self.debugger.add_point(box_centers_in_image[j], c=(0, 255, 0), img_id=str(batch_imgidx[i]) + '_RGB')
 
 
@@ -1010,7 +910,7 @@ class VoxelNet(nn.Module):
                             # self.debugger.add_3d_detection2(pred_dict['box_corners_in_fv_image'][j], c= [255, 0, 0], img_id=str(batch_imgidx[i])+'_D')
                             # self.debugger.add_point(pred_dict['box_centers_in_image'][j], c= (255, 0, 0), img_id=str(batch_imgidx[i])+'_D')
                             self.debugger.add_3d_detection2(pred_dict['box_corners_in_fv_image'][j], c=[255, 0, 0],
-                                                            img_id=str(batch_imgidx[i]) + '_RGB')
+                                                            img_id=str(batch_imgidx[i]) + '_D')
                             # self.debugger.add_point(pred_dict['box_centers_in_image'][j], c=(255, 0, 0),
                             #                         img_id=str(batch_imgidx[i]) + '_RGB')
 

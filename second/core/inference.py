@@ -14,15 +14,17 @@ class InferenceContext:
         self.config = None
         self.root_path = None
         self.target_assigner = None
-        self.voxel_generator = None
+        # self.voxel_generator = None
+        self.fv_generator = None
         self.anchor_cache = None
         self.built = False
-        self.RGB_embedding = True
+        self.RGB_embedding = False
 
     def get_inference_input_dict(self, info, points):
         # assert self.anchor_cache is not None
         # assert self.target_assigner is not None
-        assert self.voxel_generator is not None
+        # assert self.voxel_generator is not None
+        assert self.fv_generator is not None
         assert self.config is not None
         assert self.built is True
         rect = info['calib/R0_rect']
@@ -73,7 +75,8 @@ class InferenceContext:
         example = prep_pointcloud(
             input_dict=input_dict,
             root_path=str(self.root_path),
-            voxel_generator=self.voxel_generator,
+            # voxel_generator=self.voxel_generator,
+            fv_generator=self.fv_generator,
             target_assigner=self.target_assigner,
             max_voxels=input_cfg.max_number_of_voxels,
             class_names=list(input_cfg.class_names),

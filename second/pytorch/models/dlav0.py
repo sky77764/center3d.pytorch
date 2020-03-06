@@ -686,6 +686,6 @@ def get_pose_net(num_layers, heads, head_conv=256, down_ratio=4, input_channel=N
                    pretrained=False,
                    down_ratio=down_ratio,
                    head_conv=head_conv,
-                   input_channel=input_channel,
-                   depth_channel=3)
+                   input_channel=input_channel)#,
+                   # depth_channel=3)
     return model

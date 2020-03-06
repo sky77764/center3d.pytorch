@@ -49,7 +49,8 @@ class DatasetWrapper(Dataset):
 def build(input_reader_config,
           model_config,
           training,
-          voxel_generator,
+          # voxel_generator,
+          fv_generator,
           target_assigner=None,
           RGB_embedding = False) -> DatasetWrapper:
     """Builds a tensor dictionary based on the InputReader config.
@@ -68,6 +69,6 @@ def build(input_reader_config,
         raise ValueError('input_reader_config not of type '
                          'input_reader_pb2.InputReader.')
     dataset = dataset_builder.build(input_reader_config, model_config,
-                                    training, voxel_generator, target_assigner, RGB_embedding=RGB_embedding)
+                                    training, fv_generator, target_assigner, RGB_embedding=RGB_embedding)
     dataset = DatasetWrapper(dataset)
     return dataset

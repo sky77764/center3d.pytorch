@@ -195,6 +195,15 @@ class L1Loss(nn.Module):
         loss = F.l1_loss(pred * mask, target * mask, reduction='elementwise_mean')
         return loss
 
+    # def forward(self, output, mask, target, div=False):
+    #     output = torch.transpose(output, 1, 3)
+    #     if not div:
+    #         loss = F.l1_loss(output[mask], target[mask], reduction='elementwise_mean')
+    #     else:
+    #         loss = torch.mean(torch.abs(output[mask] - target[mask])/target[mask])
+    #     # print(output[mask][:3, :])
+    #     return loss
+
 
 class BinRotLoss(nn.Module):
     def __init__(self):
@@ -204,6 +213,11 @@ class BinRotLoss(nn.Module):
         pred = _transpose_and_gather_feat(output, ind)
         loss = compute_rot_loss(pred, rotbin, rotres, mask)
         return loss
+
+    # def forward(self, output, mask, rotbin, rotres):
+    #     output = torch.transpose(output, 1, 3)
+    #     loss = compute_rot_loss(output[mask], rotbin[mask], rotres[mask])
+    #     return loss
 
 
 def compute_res_loss(output, target):
@@ -250,3 +264,32 @@ def compute_rot_loss(output, target_bin, target_res, mask):
             valid_output2[:, 7], torch.cos(valid_target_res2[:, 1]))
         loss_res += loss_sin2 + loss_cos2
     return loss_bin1 + loss_bin2 + loss_res
+
+# def compute_rot_loss(output, target_bin, target_res):
+#     # output: (B, 8, img_h, img_w) [bin1_cls[0], bin1_cls[1], bin1_sin, bin1_cos,
+#     #                 bin2_cls[0], bin2_cls[1], bin2_sin, bin2_cos]
+#     # target_bin: (B, 2, img_h, img_w) [bin1_cls, bin2_cls]
+#     # target_res: (B, 2, img_h, img_w) [bin1_res, bin2_res]
+#
+#     loss_bin1 = F.cross_entropy(output[:, 0:2], target_bin[:, 0], reduction='elementwise_mean')
+#     loss_bin2 = F.cross_entropy(output[:, 4:6], target_bin[:, 1], reduction='elementwise_mean')
+#     loss_res = torch.zeros_like(loss_bin1)
+#     if target_bin[:, 0].nonzero().shape[0] > 0:
+#         idx1 = target_bin[:, 0].nonzero()[:, 0]
+#         valid_output1 = torch.index_select(output, 0, idx1.long())
+#         valid_target_res1 = torch.index_select(target_res, 0, idx1.long())
+#         loss_sin1 = compute_res_loss(
+#             valid_output1[:, 2], torch.sin(valid_target_res1[:, 0]))
+#         loss_cos1 = compute_res_loss(
+#             valid_output1[:, 3], torch.cos(valid_target_res1[:, 0]))
+#         loss_res += loss_sin1 + loss_cos1
+#     if target_bin[:, 1].nonzero().shape[0] > 0:
+#         idx2 = target_bin[:, 1].nonzero()[:, 0]
+#         valid_output2 = torch.index_select(output, 0, idx2.long())
+#         valid_target_res2 = torch.index_select(target_res, 0, idx2.long())
+#         loss_sin2 = compute_res_loss(
+#             valid_output2[:, 6], torch.sin(valid_target_res2[:, 1]))
+#         loss_cos2 = compute_res_loss(
+#             valid_output2[:, 7], torch.cos(valid_target_res2[:, 1]))
+#         loss_res += loss_sin2 + loss_cos2
+#     return loss_bin1 + loss_bin2 + loss_res

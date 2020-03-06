@@ -13,7 +13,7 @@ from tensorboardX import SummaryWriter
 
 import torchplus
 import second.data.kitti_common as kitti
-from second.builder import target_assigner_builder, voxel_builder
+from second.builder import voxel_builder as fv_builder
 from second.data.preprocess import merge_second_batch
 from second.protos import pipeline_pb2
 from second.pytorch.builder import (box_coder_builder, input_reader_builder,
@@ -66,7 +66,7 @@ def example_convert_to_torch(example, dtype=torch.float32,
     example_torch = {}
     float_names = [
         "voxels", "anchors", "reg_targets", "reg_weights", "bev_map", "rect",
-        "Trv2c", "P2"
+        "Trv2c", "P2", "fv_image"
     ]
 
     for k, v in example.items():
@@ -82,13 +82,13 @@ def example_convert_to_torch(example, dtype=torch.float32,
             example_torch[k] = v
     return example_torch
 
-RGB_embedding = True
+RGB_embedding = False
 
 def train(config_path,
           model_dir,
           result_path=None,
           create_folder=False,
-          display_step=50,
+          display_step=100,
           summary_step=5,
           pickle_result=True):
     """train a VoxelNet model specified by a config file.
@@ -118,7 +118,8 @@ def train(config_path,
     ######################
     # BUILD VOXEL GENERATOR
     ######################
-    voxel_generator = voxel_builder.build(model_cfg.voxel_generator)
+    # voxel_generator = voxel_builder.build(model_cfg.voxel_generator)
+    fv_generator = fv_builder.build(model_cfg.voxel_generator)
     ######################
     # BUILD TARGET ASSIGNER
     ######################
@@ -132,7 +133,7 @@ def train(config_path,
     # BUILD NET
     ######################
     center_limit_range = model_cfg.post_center_limit_range
-    net = second_builder.build(model_cfg, voxel_generator, target_assigner, save_path=model_dir, RGB_embedding=RGB_embedding)
+    net = second_builder.build(model_cfg, fv_generator, save_path=model_dir, RGB_embedding=RGB_embedding)
     net.cuda()
     # net_train = torch.nn.DataParallel(net).cuda()
     print("num_trainable parameters:", len(list(net.parameters())))
@@ -171,7 +172,7 @@ def train(config_path,
         input_cfg,
         model_cfg,
         training=True,
-        voxel_generator=voxel_generator,
+        fv_generator=fv_generator,
         target_assigner=target_assigner,
         RGB_embedding=RGB_embedding)
 
@@ -179,14 +180,14 @@ def train(config_path,
         eval_input_cfg,
         model_cfg,
         training=False,
-        voxel_generator=voxel_generator,
+        fv_generator=fv_generator,
         target_assigner=target_assigner,
         RGB_embedding=RGB_embedding)
 
     def _worker_init_fn(worker_id):
         time_seed = np.array(time.time(), dtype=np.int32)
         np.random.seed(time_seed + worker_id)
-        print(f"WORKER {worker_id} seed:", np.random.get_state()[1][0])
+        # print(f"WORKER {worker_id} seed:", np.random.get_state()[1][0])
 
     dataloader = torch.utils.data.DataLoader(
         dataset,
@@ -277,7 +278,7 @@ def train(config_path,
                 # num_neg = int((labels == 0)[0].float().sum().cpu().numpy())
                 # if 'anchors_mask' not in example_torch:
                 #     num_anchors = example_torch['anchors'].shape[1]
-                # else:
+                # else:export PYTHONPATH=/home/mipal10/jaeseok/center3d.pytorch/
                 #     num_anchors = int(example_torch['anchors_mask'][0].sum())
                 global_step = net.get_global_step()
                 if global_step % display_step == 0:
@@ -599,14 +600,15 @@ def evaluate(config_path,
     ######################
     # BUILD VOXEL GENERATOR
     ######################
-    voxel_generator = voxel_builder.build(model_cfg.voxel_generator)
+    # voxel_generator = voxel_builder.build(model_cfg.voxel_generator)
+    fv_generator = fv_builder.build(model_cfg.voxel_generator)
     # bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
     # box_coder = box_coder_builder.build(model_cfg.box_coder)
     # target_assigner_cfg = model_cfg.target_assigner
     # target_assigner = target_assigner_builder.build(target_assigner_cfg,
     #                                                 bv_range, box_coder)
     bv_range = box_coder = target_assigner_cfg = target_assigner = None
-    net = second_builder.build(model_cfg, voxel_generator, target_assigner, save_path=model_dir, RGB_embedding=RGB_embedding)
+    net = second_builder.build(model_cfg, fv_generator, save_path=model_dir, RGB_embedding=RGB_embedding)
     net.cuda()
     if train_cfg.enable_mixed_precision:
         net.half()
@@ -622,7 +624,7 @@ def evaluate(config_path,
         input_cfg,
         model_cfg,
         training=False,
-        voxel_generator=voxel_generator,
+        fv_generator=fv_generator,
         target_assigner=target_assigner,
         RGB_embedding=RGB_embedding)
     eval_dataloader = torch.utils.data.DataLoader(
@@ -645,8 +647,8 @@ def evaluate(config_path,
     dt_annos = []
     global_set = None
     print("Generate output labels...")
-    # bar = ProgressBar()
-    # bar.start(len(eval_dataset) // input_cfg.batch_size + 1)
+    bar = ProgressBar()
+    bar.start(len(eval_dataset) // input_cfg.batch_size + 1)
 
     for example in iter(eval_dataloader):
         example = example_convert_to_torch(example, float_dtype)
@@ -657,7 +659,7 @@ def evaluate(config_path,
         else:
             _predict_kitti_to_file(net, example, result_path_step, class_names,
                                    center_limit_range, model_cfg.lidar_input)
-        # bar.print_bar()
+        bar.print_bar()
 
     sec_per_example = len(eval_dataset) / (time.time() - t)
     print(f'generate label finished({sec_per_example:.2f}/s). start eval:')

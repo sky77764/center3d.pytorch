@@ -1,6 +1,7 @@
 import numpy as np
 
 from second.core.voxel_generator import VoxelGenerator
+from second.core.fv_generator import ForwardviewGenerator
 from second.protos import voxel_generator_pb2
 
 
@@ -20,9 +21,14 @@ def build(voxel_config):
     if not isinstance(voxel_config, (voxel_generator_pb2.VoxelGenerator)):
         raise ValueError('input_reader_config not of type '
                          'input_reader_pb2.InputReader.')
-    voxel_generator = VoxelGenerator(
-        voxel_size=list(voxel_config.voxel_size),
-        point_cloud_range=list(voxel_config.point_cloud_range),
-        max_num_points=voxel_config.max_number_of_points_per_voxel,
-        max_voxels=20000)
-    return voxel_generator
+    # voxel_generator = VoxelGenerator(
+    #     voxel_size=list(voxel_config.voxel_size),
+    #     point_cloud_range=list(voxel_config.point_cloud_range),
+    #     max_num_points=voxel_config.max_number_of_points_per_voxel,
+    #     max_voxels=20000)
+
+    fv_generator = ForwardviewGenerator(
+        fv_dim=list(voxel_config.voxel_size),
+        cartesian_coord_range=list(voxel_config.point_cloud_range),
+        input_normalization=True)
+    return fv_generator

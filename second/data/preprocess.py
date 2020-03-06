@@ -24,7 +24,7 @@ def merge_second_batch(batch_list, _unused=False):
         for k, v in example.items():
             example_merged[k].append(v)
     ret = {}
-    example_merged.pop("num_voxels")
+    # example_merged.pop("num_voxels")
     for key, elems in example_merged.items():
         if key in [
                 'voxels', 'num_points', 'num_gt', 'gt_boxes', 'voxel_labels',
@@ -47,8 +47,10 @@ def merge_second_batch(batch_list, _unused=False):
     return ret
 
 
-def filter_outside_range(spherical_gt_boxes, num_objs, grid_size):
-    mask = np.logical_or(spherical_gt_boxes[:, 0] > grid_size[0], spherical_gt_boxes[:, 1] > grid_size[1])
+def filter_outside_range(spherical_gt_boxes, num_objs, fv_dim):
+    mask1 = np.logical_or(spherical_gt_boxes[:, 0] > fv_dim[0], spherical_gt_boxes[:, 1] > fv_dim[1])
+    mask2 = np.logical_or(spherical_gt_boxes[:, 0] < 0, spherical_gt_boxes[:, 1] < 0)
+    mask = np.logical_or(mask1, mask2)
     delete_cnt = mask.astype(int).sum()
     if delete_cnt > 0:
         spherical_gt_boxes = spherical_gt_boxes[np.logical_not(mask),:]
@@ -60,7 +62,8 @@ def filter_outside_range(spherical_gt_boxes, num_objs, grid_size):
 
 def prep_pointcloud(input_dict,
                     root_path,
-                    voxel_generator,
+                    # voxel_generator,
+                    fv_generator,
                     target_assigner,
                     db_sampler=None,
                     max_voxels=20000,
@@ -299,24 +302,41 @@ def prep_pointcloud(input_dict,
     #     # shuffle is a little slow.
     #     np.random.shuffle(points)
 
+    # # t7 = time.time() - prep_pointcloud_start
+    # # print("t7-t6: ", t7 - t6)   # 1.95
+    # voxels, coordinates, num_points = voxel_generator.generate(
+    #     points, max_voxels, RGB_embedding=RGB_embedding)
+    # # t8 = time.time() - prep_pointcloud_start
+    # # print("t8-t7: ", t8 - t7)   # 2.0
+    # voxel_size = voxel_generator.voxel_size
+    # grid_size = voxel_generator.grid_size
+    # pc_range = copy.deepcopy(voxel_generator.point_cloud_range)
+    # grid_size = voxel_generator.grid_size
+    # phi_min = voxel_generator.phi_min
+    # theta_min = voxel_generator.theta_min
+    # image_h, image_w = grid_size[1], grid_size[0]
+    # c = np.array([image_w / 2., image_h / 2.])
+    # s = np.array([image_w, image_h], dtype=np.int32)
+    # meta = {'c': c, 's': s, 'calib': P2, 'phi_min': phi_min, 'theta_min': theta_min}
+
     # t7 = time.time() - prep_pointcloud_start
     # print("t7-t6: ", t7 - t6)   # 1.95
-    voxels, coordinates, num_points = voxel_generator.generate(
-        points, max_voxels, RGB_embedding=RGB_embedding)
+    fv_image, mask = fv_generator.generate(points, RGB_embedding=RGB_embedding)
+
     # t8 = time.time() - prep_pointcloud_start
     # print("t8-t7: ", t8 - t7)   # 2.0
-    voxel_size = voxel_generator.voxel_size
-    grid_size = voxel_generator.grid_size
-    pc_range = copy.deepcopy(voxel_generator.point_cloud_range)
-    grid_size = voxel_generator.grid_size
-    phi_min = voxel_generator.phi_min
-    theta_min = voxel_generator.theta_min
-    image_h, image_w = grid_size[1], grid_size[0]
+
+    fv_dim = fv_generator.fv_dim
+    pc_range = copy.deepcopy(fv_generator.spherical_coord_range)
+    grid_size = fv_generator.grid_size
+    phi_min = fv_generator.phi_min
+    theta_min = fv_generator.theta_min
+    image_h, image_w = fv_dim[1], fv_dim[0]
     c = np.array([image_w / 2., image_h / 2.])
     s = np.array([image_w, image_h], dtype=np.int32)
     meta = {'c': c, 's': s, 'calib': P2, 'phi_min': phi_min, 'theta_min': theta_min}
 
-    max_objs = 200
+    max_objs = 50
     num_objs = min(gt_boxes.shape[0], max_objs)
 
     box_np_ops.change_box3d_center_(gt_boxes, src=[0.5, 0.5, 0], dst=[0.5, 0.5, 0.5])
@@ -325,18 +345,28 @@ def prep_pointcloud(input_dict,
     spherical_gt_boxes[:num_objs, :] = convert_to_spherical_coor(gt_boxes[:num_objs, :])
     spherical_gt_boxes[:num_objs, 0] -= phi_min
     spherical_gt_boxes[:num_objs, 1] -= theta_min
-    spherical_gt_boxes[:num_objs, 0] /= voxel_size[0]
-    spherical_gt_boxes[:num_objs, 1] /= voxel_size[1]
+    # spherical_gt_boxes[:num_objs, 0] /= voxel_size[0]
+    # spherical_gt_boxes[:num_objs, 1] /= voxel_size[1]
+    spherical_gt_boxes[:num_objs, 0] /= grid_size[0]
+    spherical_gt_boxes[:num_objs, 1] /= grid_size[1]
 
-    spherical_gt_boxes, num_objs = filter_outside_range(spherical_gt_boxes, num_objs, grid_size)
+    spherical_gt_boxes, num_objs = filter_outside_range(spherical_gt_boxes, num_objs, fv_dim)
     # t9 = time.time() - prep_pointcloud_start
     # print("t9-t8: ", t9 - t8)   # 0.0005
+    # example = {
+    #     'voxels': voxels,
+    #     'num_points': num_points,
+    #     'coordinates': coordinates,
+    #     "num_voxels": np.array([voxels.shape[0]], dtype=np.int64),
+    #     'voxel_size': voxel_size,
+    #     'pc_range': pc_range,
+    #     'meta': meta,
+    #     'spherical_gt_boxes': spherical_gt_boxes,
+    #     'resized_image_shape': grid_size
+    # }
     example = {
-        'voxels': voxels,
-        'num_points': num_points,
-        'coordinates': coordinates,
-        "num_voxels": np.array([voxels.shape[0]], dtype=np.int64),
-        'voxel_size': voxel_size,
+        'fv_image': fv_image,
+        'grid_size': grid_size,
         'pc_range': pc_range,
         'meta': meta,
         'spherical_gt_boxes': spherical_gt_boxes,
@@ -365,7 +395,16 @@ def prep_pointcloud(input_dict,
         ind = np.zeros((max_objs), dtype=np.int64)
         reg_mask = np.zeros((max_objs), dtype=np.uint8)
         rot_mask = np.zeros((max_objs), dtype=np.uint8)
-
+        #
+        # hm = np.zeros((num_classes, image_h, image_w), dtype=np.float32)
+        # reg = np.zeros((image_w, image_h, 2), dtype=np.float32)
+        # dep = np.zeros((image_w, image_h, 1), dtype=np.float32)
+        # rotbin = np.zeros((image_w, image_h, 2), dtype=np.int64)
+        # rotres = np.zeros((image_w, image_h, 2), dtype=np.float32)
+        # dim = np.zeros((image_w, image_h, 3), dtype=np.float32)
+        # # ind = np.zeros((max_objs), dtype=np.int64)
+        # fg_mask = np.zeros((image_w, image_h), dtype=np.uint8)
+        # # rot_mask = np.zeros((max_objs), dtype=np.uint8)
 
         draw_gaussian = draw_umich_gaussian
         # center heatmap
@@ -384,26 +423,40 @@ def prep_pointcloud(input_dict,
             # depth(distance), wlh
             dep[k] = gt_3d_box[2]
             dim[k] = gt_3d_box[3:6]
+            # dep[ct_int[0], ct_int[1], 0] = gt_3d_box[2]
+            # dim[ct_int[0], ct_int[1], :] = gt_3d_box[3:6]
+
 
             # reg, ind, mask
             reg[k] = ct - ct_int
             ind[k] = ct_int[1] * image_w + ct_int[0]
             reg_mask[k] = rot_mask[k] = 1
+            # fg_mask[ct_int[0], ct_int[1]] = 1
+
 
             # ry
-            alpha = gt_3d_box[6]
-            if alpha < np.pi / 6. or alpha > 5 * np.pi / 6.:
+            ry = gt_3d_box[6]
+            if ry < np.pi / 6. or ry > 5 * np.pi / 6.:
                 rotbin[k, 0] = 1
-                rotres[k, 0] = alpha - (-0.5 * np.pi)
-            if alpha > -np.pi / 6. or alpha < -5 * np.pi / 6.:
+                rotres[k, 0] = ry - (-0.5 * np.pi)
+                # rotbin[ct_int[0], ct_int[1], 0] = 1
+                # rotres[ct_int[0], ct_int[1], 0] = ry - (-0.5 * np.pi)
+            if ry > -np.pi / 6. or ry < -5 * np.pi / 6.:
                 rotbin[k, 1] = 1
-                rotres[k, 1] = alpha - (0.5 * np.pi)
+                rotres[k, 1] = ry - (0.5 * np.pi)
+                # rotbin[ct_int[0], ct_int[1], 1] = 1
+                # rotres[ct_int[0], ct_int[1], 1] = ry - (0.5 * np.pi)
 
         example.update({
             'hm': hm, 'dep': dep, 'dim': dim, 'ind': ind,
             'rotbin': rotbin, 'rotres': rotres, 'reg_mask': reg_mask,
             'rot_mask': rot_mask, 'reg': reg
         })
+        # example.update({
+        #     'hm': hm, 'dep': dep, 'dim': dim,
+        #     'rotbin': rotbin, 'rotres': rotres,
+        #     'fg_mask': fg_mask, 'reg': reg
+        # })
 
     # t10 = time.time() - prep_pointcloud_start
     # print("total: ", t10)       # 19.58
