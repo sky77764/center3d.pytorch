@@ -62,7 +62,7 @@ class PFNLayer(nn.Module):
             return x_concatenated
 
 
-class ForwardViewFeatureNet(nn.Module):
+class FrontViewFeatureNet(nn.Module):
     def __init__(self,
                  num_input_features=4,
                  use_norm=True,
@@ -159,7 +159,7 @@ class ForwardViewFeatureNet(nn.Module):
         return features.squeeze()
 
 
-class ForwardViewScatter(nn.Module):
+class FrontViewScatter(nn.Module):
     def __init__(self,
                  output_shape,
                  num_input_features=64):

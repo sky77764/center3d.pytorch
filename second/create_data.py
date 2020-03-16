@@ -200,7 +200,7 @@ def create_groundtruth_database(data_path,
                                 lidar_only=False,
                                 bev_only=False,
                                 coors_range=None):
-    RGB_embedding = False
+    RGB_embedding = True
 
     root_path = pathlib.Path(data_path)
     if info_path is None:

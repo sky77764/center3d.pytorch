@@ -48,7 +48,7 @@ def merge_second_batch(batch_list, _unused=False):
 
 
 def filter_outside_range(spherical_gt_boxes, num_objs, fv_dim):
-    mask1 = np.logical_or(spherical_gt_boxes[:, 0] > fv_dim[0], spherical_gt_boxes[:, 1] > fv_dim[1])
+    mask1 = np.logical_or(spherical_gt_boxes[:, 0] >= fv_dim[0], spherical_gt_boxes[:, 1] >= fv_dim[1])
     mask2 = np.logical_or(spherical_gt_boxes[:, 0] < 0, spherical_gt_boxes[:, 1] < 0)
     mask = np.logical_or(mask1, mask2)
     delete_cnt = mask.astype(int).sum()
@@ -58,6 +58,11 @@ def filter_outside_range(spherical_gt_boxes, num_objs, fv_dim):
 
     return spherical_gt_boxes, num_objs-delete_cnt
 
+def filter_outside_range2(points, fv_dim):
+    mask1 = np.logical_or(points[:, 0] >= fv_dim[0], points[:, 1] >= fv_dim[1])
+    mask2 = np.logical_or(points[:, 0] < 0, points[:, 1] < 0)
+    mask = np.logical_or(mask1, mask2)
+    return np.logical_not(mask)
 
 
 def prep_pointcloud(input_dict,
@@ -162,6 +167,7 @@ def prep_pointcloud(input_dict,
     # t3 = time.time() - prep_pointcloud_start
     # print("t3-t2: ", t3 - t2)   # 0.0002
     gt_boxes = box_np_ops.box_camera_to_lidar(gt_boxes, rect, Trv2c)
+
     if remove_unknown:
         remove_mask = difficulty == -1
         """
@@ -205,39 +211,74 @@ def prep_pointcloud(input_dict,
         if RGB_embedding:
             num_point_features += 3
 
+        fg_points_mask = box_np_ops.points_in_rbbox(points, gt_boxes)
+        fg_points_list = []
+        bg_points_mask = np.zeros((points.shape[0]), dtype=bool)
+        for i in range(fg_points_mask.shape[1]):
+            fg_points_list.append(points[fg_points_mask[:, i]])
+            bg_points_mask = np.logical_or(bg_points_mask, fg_points_mask[:, i])
+        bg_points_mask = np.logical_not(bg_points_mask)
         sampled_dict = db_sampler.sample_all(
             root_path,
+            points[bg_points_mask],
             gt_boxes,
             gt_names,
+            fg_points_list,
             num_point_features,
             random_crop,
             gt_group_ids=group_ids,
             rect=rect,
             Trv2c=Trv2c,
             P2=P2)
+
+        # sampled_dict = db_sampler.sample_all(
+        #     root_path,
+        #     gt_boxes,
+        #     gt_names,
+        #     num_point_features,
+        #     random_crop,
+        #     gt_group_ids=group_ids,
+        #     rect=rect,
+        #     Trv2c=Trv2c,
+        #     P2=P2)
         # t_sample_all = time.time() - prep_pointcloud_start
         # print("t_sample_all - t5: ", t_sample_all - t5)     # 3.83
 
         if sampled_dict is not None:
             sampled_gt_names = sampled_dict["gt_names"]
             sampled_gt_boxes = sampled_dict["gt_boxes"]
-            sampled_points = sampled_dict["points"]
+            points = sampled_dict["points"]
             sampled_gt_masks = sampled_dict["gt_masks"]
+            remained_boxes_idx = sampled_dict["remained_boxes_idx"]
             # gt_names = gt_names[gt_boxes_mask].tolist()
             gt_names = np.concatenate([gt_names, sampled_gt_names], axis=0)
             # gt_names += [s["name"] for s in sampled]
             gt_boxes = np.concatenate([gt_boxes, sampled_gt_boxes])
-            gt_boxes_mask = np.concatenate(
-                [gt_boxes_mask, sampled_gt_masks], axis=0)
+            gt_boxes_mask = np.concatenate([gt_boxes_mask, sampled_gt_masks], axis=0)
+
+            gt_names = gt_names[remained_boxes_idx]
+            gt_boxes = gt_boxes[remained_boxes_idx]
+            gt_boxes_mask = gt_boxes_mask[remained_boxes_idx]
+
             if group_ids is not None:
                 sampled_group_ids = sampled_dict["group_ids"]
                 group_ids = np.concatenate([group_ids, sampled_group_ids])
+                group_ids = group_ids[remained_boxes_idx]
 
-            if remove_points_after_sample:
-                points = prep.remove_points_in_boxes(
-                    points, sampled_gt_boxes)
-
-            points = np.concatenate([sampled_points, points], axis=0)
+            # if remove_points_after_sample:
+            #     # points = prep.remove_points_in_boxes(
+            #     #     points, sampled_gt_boxes)
+            #     locs = sampled_gt_boxes[:, 0:3]
+            #     dims = sampled_gt_boxes[:, 3:6]
+            #     angles = sampled_gt_boxes[:, 6]
+            #     camera_box_origin = [0.5, 0.5, 0]
+            #
+            #     box_corners = box_np_ops.center_to_corner_box3d(
+            #         locs, dims, angles, camera_box_origin, axis=2)
+            #     box_corners_in_image = box_np_ops.project_to_fv_image(
+            #         box_corners, example['grid_size'][i], example['meta'][i])
+            #     box_centers_in_image = box_np_ops.project_to_fv_image(
+            #         locs, example['grid_size'][i], example['meta'][i])
 
             # t_sample_all2 = time.time() - prep_pointcloud_start
             # print("t_sample_all2 - t_sample_all: ", t_sample_all2 - t_sample_all)   # 0.0002
@@ -254,6 +295,7 @@ def prep_pointcloud(input_dict,
     #     gt_boxes[:, 2] = pc_range[2]
     #     gt_boxes[:, 5] = pc_range[5] - pc_range[2]
     if training:
+        gt_loc_noise_std = [0.0, 0.0, 0.0]
         prep.noise_per_object_v3_(
             gt_boxes,
             points,
@@ -278,12 +320,12 @@ def prep_pointcloud(input_dict,
 
     if training:
         gt_boxes, points = prep.random_flip(gt_boxes, points)
-        gt_boxes, points = prep.global_rotation(
-            gt_boxes, points, rotation=global_rotation_noise)
+        # gt_boxes, points = prep.global_rotation(
+        #     gt_boxes, points, rotation=global_rotation_noise)
         gt_boxes, points = prep.global_scaling_v2(gt_boxes, points,
                                                   *global_scaling_noise)
         # Global translation
-        gt_boxes, points = prep.global_translate(gt_boxes, points, global_loc_noise_std)
+        # gt_boxes, points = prep.global_translate(gt_boxes, points, global_loc_noise_std)
 
     # bv_range = voxel_generator.point_cloud_range[[0, 1, 3, 4]]
     bv_range = [0, -40, 70.4, 40]
@@ -321,7 +363,7 @@ def prep_pointcloud(input_dict,
 
     # t7 = time.time() - prep_pointcloud_start
     # print("t7-t6: ", t7 - t6)   # 1.95
-    fv_image, mask = fv_generator.generate(points, RGB_embedding=RGB_embedding)
+    fv_image, points_mask = fv_generator.generate(points, RGB_embedding=RGB_embedding, occupancy_embedding=False)
 
     # t8 = time.time() - prep_pointcloud_start
     # print("t8-t7: ", t8 - t7)   # 2.0
@@ -336,6 +378,7 @@ def prep_pointcloud(input_dict,
     s = np.array([image_w, image_h], dtype=np.int32)
     meta = {'c': c, 's': s, 'calib': P2, 'phi_min': phi_min, 'theta_min': theta_min}
 
+    fv_image = np.transpose(fv_image, [2, 1, 0])
     max_objs = 50
     num_objs = min(gt_boxes.shape[0], max_objs)
 
@@ -345,25 +388,13 @@ def prep_pointcloud(input_dict,
     spherical_gt_boxes[:num_objs, :] = convert_to_spherical_coor(gt_boxes[:num_objs, :])
     spherical_gt_boxes[:num_objs, 0] -= phi_min
     spherical_gt_boxes[:num_objs, 1] -= theta_min
-    # spherical_gt_boxes[:num_objs, 0] /= voxel_size[0]
-    # spherical_gt_boxes[:num_objs, 1] /= voxel_size[1]
     spherical_gt_boxes[:num_objs, 0] /= grid_size[0]
     spherical_gt_boxes[:num_objs, 1] /= grid_size[1]
 
     spherical_gt_boxes, num_objs = filter_outside_range(spherical_gt_boxes, num_objs, fv_dim)
+
     # t9 = time.time() - prep_pointcloud_start
     # print("t9-t8: ", t9 - t8)   # 0.0005
-    # example = {
-    #     'voxels': voxels,
-    #     'num_points': num_points,
-    #     'coordinates': coordinates,
-    #     "num_voxels": np.array([voxels.shape[0]], dtype=np.int64),
-    #     'voxel_size': voxel_size,
-    #     'pc_range': pc_range,
-    #     'meta': meta,
-    #     'spherical_gt_boxes': spherical_gt_boxes,
-    #     'resized_image_shape': grid_size
-    # }
     example = {
         'fv_image': fv_image,
         'grid_size': grid_size,
@@ -408,8 +439,8 @@ def prep_pointcloud(input_dict,
 
         draw_gaussian = draw_umich_gaussian
         # center heatmap
-        # radius = int(image_h / 30)
-        radius = int(image_h / 25)
+        radius = int(image_h / 30)
+        # radius = int(image_h / 25)
 
         for k in range(num_objs):
             gt_3d_box = spherical_gt_boxes[k]

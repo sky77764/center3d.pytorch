@@ -65,6 +65,79 @@ def second_box_encode(boxes, anchors, encode_angle_to_vector=False, smooth_dim=F
         rt = rg - ra
         return np.concatenate([xt, yt, zt, wt, lt, ht, rt], axis=-1)
 
+def convert_to_spherical_coord(points):
+    dim = len(points.shape)
+    if dim == 2:
+        x = np.expand_dims(points[:, 0], axis=dim-1)
+        y = np.expand_dims(points[:, 1], axis=dim-1)
+        z = np.expand_dims(points[:, 2], axis=dim-1)
+        if points.shape[dim-1] > 3:
+            etc = points[:, 3:]
+    elif dim == 3:
+        x = np.expand_dims(points[:, :, 0], axis=dim-1)
+        y = np.expand_dims(points[:, :, 1], axis=dim-1)
+        z = np.expand_dims(points[:, :, 2], axis=dim-1)
+        if points.shape[dim-1] > 3:
+            etc = points[:, :, 3:]
+
+    distance = np.sqrt(x * x + y * y + z * z)
+    phi = np.arctan(y / x)
+    theta = np.arccos(z / distance)
+
+    if points.shape[dim - 1] > 3:
+        return np.concatenate((phi, theta, distance, etc), axis=dim-1)
+    else:
+        return np.concatenate((phi, theta, distance), axis=dim - 1)
+
+def convert_to_spherical_coord_list(point_list):
+    return_list = []
+    for points in point_list:
+        dim = len(points.shape)
+        if dim == 2:
+            x = np.expand_dims(points[:, 0], axis=dim - 1)
+            y = np.expand_dims(points[:, 1], axis=dim - 1)
+            z = np.expand_dims(points[:, 2], axis=dim - 1)
+            if points.shape[dim - 1] > 3:
+                etc = points[:, 3:]
+        elif dim == 3:
+            x = np.expand_dims(points[:, :, 0], axis=dim - 1)
+            y = np.expand_dims(points[:, :, 1], axis=dim - 1)
+            z = np.expand_dims(points[:, :, 2], axis=dim - 1)
+            if points.shape[dim - 1] > 3:
+                etc = points[:, :, 3:]
+
+        distance = np.sqrt(x * x + y * y + z * z)
+        phi = np.arctan(y / x)
+        theta = np.arccos(z / distance)
+
+        if points.shape[dim - 1] > 3:
+            return_list.append(np.concatenate((phi, theta, distance, etc), axis=dim - 1))
+        else:
+            return_list.append(np.concatenate((phi, theta, distance), axis=dim - 1))
+    return return_list
+
+def convert_to_cartesian_coord(points):
+    dim = len(points.shape)
+    if dim == 2:
+        phi = points[:, 0:1]
+        theta = points[:, 1:2]
+        distance = points[:, 2:3]
+        etc = points[:, 3:]
+    elif dim == 3:
+        phi = points[:, :, 0:1]
+        theta = points[:, :, 1:2]
+        distance = points[:, :, 2:3]
+        etc = points[:, :, 3:]
+
+    x = np.sin(theta) * np.cos(phi) * distance
+    y = np.sin(theta) * np.sin(phi) * distance
+    z = np.cos(theta) * distance
+
+    if points.shape[dim - 1] > 3:
+        return np.concatenate((x, y, z, etc), axis=dim-1)
+    else:
+        return np.concatenate((x, y, z), axis=dim-1)
+
 
 def second_box_decode(box_encodings, anchors, encode_angle_to_vector=False, smooth_dim=False):
     """box decode for VoxelNet in lidar
@@ -831,6 +904,29 @@ def distance_similarity(points,
                         dists[n, k] = 1 - dist_normed
     return dists
 
+def project_to_fv_image(points_3d, voxel_size, meta):
+    if len(points_3d.shape) == 3:
+        x = points_3d[:, :, 0]
+        y = points_3d[:, :, 1]
+        z = points_3d[:, :, 2]
+    elif len(points_3d.shape) == 2:
+        x = points_3d[:, 0]
+        y = points_3d[:, 1]
+        z = points_3d[:, 2]
+
+    distance = np.sqrt(x * x + y * y + z * z)
+    phi = np.arctan(y / x)
+    theta = np.arccos(z / distance)
+
+    if len(points_3d.shape) == 3:
+        points_2d = np.concatenate([np.expand_dims(phi, axis=2), np.expand_dims(theta, axis=2)], axis=2)
+        points_2d[:, :, 0] = (points_2d[:, :, 0] - meta['phi_min']) / voxel_size[0]
+        points_2d[:, :, 1] = (points_2d[:, :, 1] - meta['theta_min']) / voxel_size[1]
+    elif len(points_3d.shape) == 2:
+        points_2d = np.concatenate([np.expand_dims(phi, axis=1), np.expand_dims(theta, axis=1)], axis=1)
+        points_2d[:, 0] = (points_2d[:, 0] - meta['phi_min']) / voxel_size[0]
+        points_2d[:, 1] = (points_2d[:, 1] - meta['theta_min']) / voxel_size[1]
+    return points_2d
 
 def box3d_to_bbox(box3d, rect, Trv2c, P2):
     box_corners = center_to_corner_box3d(box3d[:, :3], box3d[:, 3:6], box3d[:, 6], [0.5, 1.0, 0.5], axis=1)

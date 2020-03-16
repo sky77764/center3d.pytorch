@@ -3,7 +3,7 @@ model: {
     voxel_generator {
       point_cloud_range : [0, -39.68, -3, 69.12, 39.68, 1]
       #voxel_size : [1280, 384, 1]
-      voxel_size : [640, 192, 5]
+      voxel_size : [640, 192, 8]
       max_number_of_points_per_voxel : 100
     }
     num_class: 1
@@ -115,8 +115,8 @@ train_input_reader: {
   groundtruth_points_drop_percentage: 0.0
   groundtruth_drop_max_keep_points: 15
   database_sampler {
-    database_info_path: "/home/js/data/KITTI/object/kitti_dbinfos_train.pkl"
-    #database_info_path: "/home/js/data/KITTI/object/kitti_dbinfos_train_RGB.pkl"
+    #database_info_path: "/home/js/data/KITTI/object/kitti_dbinfos_train.pkl"
+    database_info_path: "/home/js/data/KITTI/object/kitti_dbinfos_train_RGB.pkl"
     sample_groups {
       name_to_max_num {
         key: "Car"

@@ -20,7 +20,7 @@ def remove_outside_points(fv_image_idx, fv_dim):
     return mask
 
 
-class ForwardviewGenerator:
+class FrontviewGenerator:
     def __init__(self,
                  fv_dim,
                  cartesian_coord_range,
@@ -33,8 +33,10 @@ class ForwardviewGenerator:
         self._theta_min = 0
         self._cartesian_coord_range = np.array(cartesian_coord_range, dtype=np.float32)
         self._input_normalization = input_normalization
+        self._mean = np.array([0.485, 0.456, 0.406], np.float32).reshape(1, 3)
+        self._std = np.array([0.229, 0.224, 0.225], np.float32).reshape(1, 3)
 
-    def generate(self, points, RGB_embedding=False):
+    def generate(self, points, RGB_embedding=False, occupancy_embedding=False):
         spherical_points = convert_to_spherical_coord(points)
         self._phi_min = spherical_points[:, 0].min()
         self._theta_min = spherical_points[:, 1].min()
@@ -66,15 +68,17 @@ class ForwardviewGenerator:
             spherical_points[:, 2] = spherical_points[:, 2] / self.spherical_coord_range[5]
             # RGB normalize
             if RGB_embedding:
-                points[:, 5:] = points[:, 5:] / 255
+                points[:, 4:] = (points[:, 4:] / 255 - self._mean) / self._std
 
-        channel_embedding = np.concatenate((points[:, :3], spherical_points[:, 2:3], points[:, 3:]), axis=1)  # xyzdrbgr
+        if occupancy_embedding:
+            channel_embedding = np.concatenate((points[:, :3], spherical_points[:, 2:3], points[:, 3:], np.ones((points.shape[0], 1))), axis=1) # xyzdrbgro
+        else:
+            channel_embedding = np.concatenate((points[:, :3], spherical_points[:, 2:3], points[:, 3:]), axis=1)  # xyzdrbgr
 
         fv_image = np.zeros(self._fv_dim, dtype=np.float32)
         for i, idx in enumerate(fv_image_idx):
             fv_image[idx[0], idx[1]] = channel_embedding[i]
-
-        fv_image = np.transpose(fv_image, [2, 1, 0])
+        # fv_image = np.transpose(fv_image, [2, 1, 0])
         return fv_image, mask
 
     @property
@@ -84,6 +88,14 @@ class ForwardviewGenerator:
     @property
     def theta_min(self):
         return self._theta_min
+
+    @property
+    def mean(self):
+        return self._mean
+
+    @property
+    def std(self):
+        return self._std
 
     @property
     def grid_size(self):

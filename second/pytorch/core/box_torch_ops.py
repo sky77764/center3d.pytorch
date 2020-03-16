@@ -538,7 +538,7 @@ def convert_to_cartesian_coor(points, phi_min=0, theta_min=0):
     theta += theta_min
 
     x = torch.sin(theta) * torch.cos(phi) * distance
-    y = torch.sin(theta) * torch.sin(theta) * distance
+    y = torch.sin(theta) * torch.sin(phi) * distance
     z = torch.cos(theta) * distance
 
     if points.shape[1] == 4:

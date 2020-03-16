@@ -1,7 +1,7 @@
 import numpy as np
 
 from second.core.voxel_generator import VoxelGenerator
-from second.core.fv_generator import ForwardviewGenerator
+from second.core.fv_generator import FrontviewGenerator
 from second.protos import voxel_generator_pb2
 
 
@@ -27,8 +27,7 @@ def build(voxel_config):
     #     max_num_points=voxel_config.max_number_of_points_per_voxel,
     #     max_voxels=20000)
 
-    fv_generator = ForwardviewGenerator(
+    fv_generator = FrontviewGenerator(
         fv_dim=list(voxel_config.voxel_size),
-        cartesian_coord_range=list(voxel_config.point_cloud_range),
-        input_normalization=True)
+        cartesian_coord_range=list(voxel_config.point_cloud_range))
     return fv_generator

@@ -18,10 +18,11 @@ from second.pytorch.core.losses import (WeightedSigmoidClassificationLoss,
                                           WeightedSmoothL1LocalizationLoss,
                                           WeightedSoftmaxClassificationLoss)
 from second.pytorch.models.pointpillars import PillarFeatureNet, PointPillarsScatter
-from second.pytorch.models.fvfeature import ForwardViewFeatureNet, ForwardViewScatter
+from second.pytorch.models.fvfeature import FrontViewFeatureNet, FrontViewScatter
 from second.pytorch.utils import get_paddings_indicator
 
 from second.pytorch.models.dlav0 import get_pose_net
+from second.pytorch.models.dla_dcn import get_pose_net as get_pose_net_dcn
 from second.pytorch.models.losses import FocalLoss, L1Loss, BinRotLoss
 from second.pytorch.models.decode import ddd_decode
 from second.utils.post_process import ddd_post_process
@@ -502,7 +503,8 @@ class VoxelNet(nn.Module):
                  encode_background_as_zeros=True,
                  name='voxelnet',
                  save_path=None,
-                 RGB_embedding=False):
+                 RGB_embedding=False,
+                 occupancy_embedding=False):
 
         super().__init__()
         self.name = name
@@ -514,6 +516,7 @@ class VoxelNet(nn.Module):
 
         self._save_path = save_path
         self._RGB_embedding = RGB_embedding
+        self._occupancy_embedding = occupancy_embedding
 
         self._output_shape = output_shape
 
@@ -525,9 +528,13 @@ class VoxelNet(nn.Module):
         input_channel = 5
         if self._RGB_embedding:
             input_channel += 3
-        self._down_ratio = 1
+        if self._occupancy_embedding:
+            input_channel += 1
+
         heads = {'hm':num_class, 'dep':1, 'rot':8, 'dim':3, 'reg':2}
-        self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256, down_ratio=self._down_ratio, input_channel=input_channel)
+        self._down_ratio = 1
+        # self.rpn = get_pose_net(num_layers=34, heads=heads, head_conv=256, down_ratio=self._down_ratio, input_channel=input_channel)
+        self.rpn = get_pose_net_dcn(num_layers=34, heads=heads, head_conv=256, down_ratio=self._down_ratio, input_channel=input_channel)
 
         self.rpn_acc = metrics.Accuracy(
             dim=-1, encode_background_as_zeros=encode_background_as_zeros)
@@ -544,7 +551,7 @@ class VoxelNet(nn.Module):
         self.rpn_total_loss = metrics.Scalar()
         self.register_buffer("global_step", torch.LongTensor(1).zero_())
 
-        self.debug_mode = True
+        self.debug_mode = False
         self.save_imgs = False
         if self.debug_mode:
             self.debugger = Debugger(theme='black', num_classes=self._num_class, down_ratio=self._down_ratio)
@@ -596,25 +603,33 @@ class VoxelNet(nn.Module):
         spherical_points = batch_canvas.cpu().numpy()
         return spherical_points
 
-    def make_input_img(self, fv_image, batch_size, batch_imgidx, RGB_embedding=False):
+    def make_input_img(self, fv_image, batch_size, batch_imgidx, RGB_embedding=False, channel_idx=3, id_suffix='D'):
         for i in range(batch_size):
             fvmap = fv_image.detach().cpu().numpy()[i]
             if not RGB_embedding:
-                fvmap = fvmap[3:4, :, :]
+                fvmap = fvmap[channel_idx:channel_idx+1, :, :]
                 mask = fvmap != 0
-                fvmap[mask] -= fvmap[mask].min()
-                fvmap[mask] /= fvmap[mask].max()
-                fvmap[mask] = 1 - fvmap[mask]
+                # fvmap[mask] -= fvmap[mask].min()
+                # fvmap[mask] /= fvmap[mask].max()
+                # fvmap[mask] = 1 - fvmap[mask]
 
-                colormap = self.debugger.gen_colormap(fvmap)
-                self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]) + '_D')
+                text_list = []
+                text_list.append(id_suffix)
+                text_list.append('min: ' + str(fvmap[mask].min()))
+                text_list.append('max: ' + str(fvmap[mask].max()))
+
+                colormap = self.debugger.gen_colormap(fvmap, text_list=text_list)
+                self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]) + '_' + id_suffix)
             else:
-                colormap = self.debugger.gen_colormap_RGB(fvmap)
-                self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]) + '_RGB')
+                colormap = self.debugger.gen_colormap_RGB(fvmap[channel_idx:channel_idx+3, :, :])
+                self.debugger.add_img(colormap, img_id=str(batch_imgidx[i]) + '_' + id_suffix)
+
+                # filtered_colormap = self.debugger.get_filtered_image(colormap)
+                # for idx, filtered_img in enumerate(filtered_colormap):
+                #     self.debugger.add_img(filtered_img, img_id=str(batch_imgidx[i]) + '_' + id_suffix + '_' + str(idx))
 
 
-
-    def make_gt_img(self, hm, batch_size, batch_imgidx, id):
+    def make_channel_img(self, hm, batch_size, batch_imgidx, id):
         for i in range(batch_size):
             heatmap = hm[i]
             colormap = self.debugger.gen_colormap(heatmap)
@@ -636,16 +651,25 @@ class VoxelNet(nn.Module):
         self._total_forward_time += time.time() - t
         if self.training:
             if self.debug_mode:
-                self.make_input_img(fv_image, batch_size_dev, example['image_idx'])
-                self.make_gt_img(example['hm'], batch_size_dev, example['image_idx'], id='HM')
-                # dep = np.transpose(example['dep'], (0, 3, 2, 1))
-                # self.make_gt_img(dep, batch_size_dev, example['image_idx'], id='DEP')
+                self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=0, id_suffix='X')
+                # self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=1, id_suffix='Y')
+                # self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=2, id_suffix='Z')
+                self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=3, id_suffix='D')
+                self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=4, id_suffix='R')
+                if self._occupancy_embedding:
+                    occupancy_idx = 5
+                    if self._RGB_embedding:
+                        occupancy_idx += 3
+                    self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=occupancy_idx, id_suffix='O')
+
 
                 if self._RGB_embedding:
+                    self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], RGB_embedding=True,
+                                        channel_idx=5, id_suffix='RGB')
+
                     for i in range(batch_size_dev):
                         RGB_image = example["RGB_image"][i]
-                        # colormap = self.debugger.gen_colormap_RGB2(RGB_image)
-                        # RGB_image *= 255
+                        # RGB_image = RGB_image * 255.0
                         self.debugger.add_img(RGB_image, img_id='RGB '+ str(example['image_idx'][i]))
 
                 spherical_gt_boxes = example['spherical_gt_boxes']
@@ -680,8 +704,8 @@ class VoxelNet(nn.Module):
 
                     for j in range(num_obj):
                         self.debugger.add_3d_detection2(box_corners_in_image[j], c=[0, 255, 0],
-                                                        img_id=str(example['image_idx'][i])+'_D')
-                        self.debugger.add_point(box_centers_in_image[j], c=(0, 255, 0), img_id=str(example['image_idx'][i])+'_D')
+                                                        img_id=str(example['image_idx'][i])+'_R')
+                        self.debugger.add_point(box_centers_in_image[j], c=(0, 255, 0), img_id=str(example['image_idx'][i])+'_R')
 
                 self.debugger.show_all_imgs(pause=True, stack=True, ids=example['image_idx'])
                 self.debugger.remove_all_imgs()
@@ -754,15 +778,23 @@ class VoxelNet(nn.Module):
         dets = ddd_decode(output['hm'], output['rot'], output['dep'],
                           output['dim'], reg=reg, K=40)
         if self.debug_mode:
-            # self.make_input_img(example['voxels'], example['coordinates'], batch_size, batch_imgidx)
-            # self.make_input_img(example['voxels'], example['coordinates'], batch_size, example['image_idx'],
-            #                     RGB_embedding=self._RGB_embedding)
-            self.make_input_img(example['fv_image'], batch_size, example['image_idx'])
-            self.make_gt_img(output['hm'].detach().cpu().numpy(), batch_size, example['image_idx'], id='HM')
+            # self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=0, id_suffix='X')
+            # self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=1, id_suffix='Y')
+            # self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=2, id_suffix='Z')
+            self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=3, id_suffix='D')
+            self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=4, id_suffix='R')
+            # self.make_channel_img(output['hm'].detach().cpu().numpy(), batch_size, example['image_idx'], id='HM')
 
             # for i in range(batch_size):
             #     pos_mask = dets[i, :, 2] > score_thresh
             #     self.debugger.add_points(dets[i,:,:2][pos_mask].view(1, -1, 2).detach().cpu().numpy().astype(np.int32), img_id='input_'+str(i))
+
+            if self._RGB_embedding:
+                self.make_input_img(example['fv_image'], batch_size, example['image_idx'], RGB_embedding=True,
+                                    channel_idx=5, id_suffix='RGB')
+                for i in range(batch_size):
+                    RGB_image = example["RGB_image"][i]
+                    self.debugger.add_img(RGB_image, img_id='RGB ' + str(example['image_idx'][i]))
 
         dets = self.post_process(dets, example['meta'], example['grid_size'])
 

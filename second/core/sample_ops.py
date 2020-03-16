@@ -13,6 +13,22 @@ import copy
 
 from second.utils.check import shape_mergeable
 
+from scipy.spatial import ConvexHull, Delaunay
+
+def in_hull(p, hull):
+    """
+    Test if points in `p` are in `hull`
+
+    `p` should be a `NxK` coordinates of `N` points in `K` dimensions
+    `hull` is either a scipy.spatial.Delaunay object or the `MxK` array of the
+    coordinates of `M` points in `K`dimensions for which Delaunay triangulation
+    will be computed
+    """
+    if not isinstance(hull, Delaunay):
+        hull = Delaunay(hull, qhull_options='QJ')
+
+    return hull.find_simplex(p)>=0
+
 class DataBaseSamplerV2:
     def __init__(self, db_infos, groups, db_prepor=None,
                  rate=1.0, global_rot_range=None):
@@ -92,10 +108,59 @@ class DataBaseSamplerV2:
     def use_group_sampling(self):
         return self._use_group_sampling
 
+
+    def remove_occluded_points(self, bg_points, gt_boxes, fg_points_list, sampled_boxes, sampled_points_list):
+        bg_points_spherical = box_np_ops.convert_to_spherical_coord(bg_points)
+        boxes = np.concatenate((gt_boxes, sampled_boxes), axis=0)
+        boxes_points = fg_points_list + sampled_points_list
+        boxes_points_spherical = box_np_ops.convert_to_spherical_coord_list(boxes_points)
+        ascending_idx = sorted(range(len(boxes)), key=lambda x: boxes[x, 0])
+        locs = boxes[:, 0:3]
+        dims = boxes[:, 3:6]
+        angles = boxes[:, 6]
+        camera_box_origin = [0.5, 0.5, 0]
+        box_corners = box_np_ops.center_to_corner_box3d(locs, dims, angles, camera_box_origin, axis=2)
+        box_corners_spherical = box_np_ops.convert_to_spherical_coord(box_corners)
+
+        scale_factor = 100
+        box_corners_spherical *= scale_factor
+        boxes_points_spherical = [x * scale_factor for x in boxes_points_spherical]
+        bg_points_spherical *= scale_factor
+
+        exclude_idx = []
+        for idx in ascending_idx[:-1]:
+            exclude_idx.append(idx)
+            for i, box_points in enumerate(boxes_points_spherical):
+                if i in exclude_idx:
+                    continue
+                # remove_mask = in_hull(box_points[:, :2], ConvexHull(box_corners_spherical[idx][:, :2], qhull_options='QJ').points)
+                remove_mask = in_hull(box_points[:, :2], box_corners_spherical[idx][:, :2])
+                boxes_points_spherical[i] = box_points[np.logical_not(remove_mask)]
+
+        remained_boxes_idx = np.zeros((boxes.shape[0]), dtype=bool)
+        for i, box_points in reversed(list(enumerate(boxes_points_spherical))):
+            if i < len(fg_points_list):
+                if box_points.shape[0] > 8:
+                    remained_boxes_idx[i] = True
+                    bg_points_spherical = np.concatenate([bg_points_spherical, box_points], axis=0)
+            else:
+                if box_points.shape[0] > 8:
+                    remained_boxes_idx[i] = True
+                    # remove_mask = in_hull(bg_points_spherical[:, :2], ConvexHull(box_points[:, :2], qhull_options='QJ').points)
+                    remove_mask = in_hull(bg_points_spherical[:, :2], box_points[:, :2])
+                    bg_points_spherical = bg_points_spherical[np.logical_not(remove_mask)]
+                    bg_points_spherical = np.concatenate([bg_points_spherical, box_points], axis=0)
+
+        bg_points_spherical /= scale_factor
+        points = box_np_ops.convert_to_cartesian_coord(bg_points_spherical)
+        return points, remained_boxes_idx
+
     def sample_all(self,
                    root_path,
+                   bg_points,
                    gt_boxes,
                    gt_names,
+                   fg_points_list,
                    num_point_features,
                    random_crop=False,
                    gt_group_ids=None,
@@ -195,11 +260,15 @@ class DataBaseSamplerV2:
                         s_points = s_points[np.logical_not(mask)]
                     s_points_list_new.append(s_points)
                 s_points_list = s_points_list_new
+
+            points, remained_boxes_idx = self.remove_occluded_points(bg_points, gt_boxes, fg_points_list, sampled_gt_boxes, s_points_list)
             ret = {
                 "gt_names": np.array([s["name"] for s in sampled]),
                 "difficulty": np.array([s["difficulty"] for s in sampled]),
                 "gt_boxes": sampled_gt_boxes,
-                "points": np.concatenate(s_points_list, axis=0),
+                # "points": np.concatenate(s_points_list, axis=0),
+                "points": points,
+                "remained_boxes_idx": remained_boxes_idx,
                 "gt_masks": np.ones((num_sampled, ), dtype=np.bool_)
             }
             if self._use_group_sampling:

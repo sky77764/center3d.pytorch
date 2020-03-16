@@ -82,7 +82,7 @@ def example_convert_to_torch(example, dtype=torch.float32,
             example_torch[k] = v
     return example_torch
 
-RGB_embedding = False
+
 
 def train(config_path,
           model_dir,
@@ -109,6 +109,9 @@ def train(config_path,
         proto_str = f.read()
         text_format.Merge(proto_str, config)
     shutil.copyfile(config_path, str(model_dir / config_file_bkp))
+    RGB_embedding = False
+    if config_path.endswith("RGB.proto"):
+        RGB_embedding = True
     input_cfg = config.train_input_reader
     eval_input_cfg = config.eval_input_reader
     model_cfg = config.model.second
@@ -364,6 +367,7 @@ def train(config_path,
             print("# EVAL", file=logf)
             print("#################################")
             print("#################################", file=logf)
+            print(model_dir)
             print("Generate output labels...")
             print("Generate output labels...", file=logf)
             t = time.time()
@@ -591,6 +595,9 @@ def evaluate(config_path,
     with open(config_path, "r") as f:
         proto_str = f.read()
         text_format.Merge(proto_str, config)
+    RGB_embedding = False
+    if config_path.endswith("RGB.proto"):
+        RGB_embedding = True
 
     input_cfg = config.eval_input_reader
     model_cfg = config.model.second

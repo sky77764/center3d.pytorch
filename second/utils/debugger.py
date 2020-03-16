@@ -80,7 +80,7 @@ class Debugger(object):
       return color_map
       '''
 
-    def gen_colormap(self, img, output_res=None):
+    def gen_colormap(self, img, output_res=None, text_list=None):
         img = img.copy()
         c, h, w = img.shape[0], img.shape[1], img.shape[2]
         if output_res is None:
@@ -92,18 +92,43 @@ class Debugger(object):
             colors = 255 - colors
         color_map = (img * colors).max(axis=2).astype(np.uint8)
         # color_map = cv2.resize(color_map, (output_res[0], output_res[1]))
+        if text_list is not None:
+            location = (10, 20)
+            font = cv2.FONT_HERSHEY_COMPLEX_SMALL
+            fontScale = 0.7
+            color = (0, 255, 255)
+            for i, text in enumerate(text_list):
+                cv2.putText(color_map, text, (location[0], location[1]*(i+1)), font, fontScale, color, 1)
         return color_map
 
-    def gen_colormap_RGB(self, img, output_res=None):
+    def gen_colormap_RGB(self, img, output_res=None, normalized=True):
         img = img.copy()
         c, h, w = img.shape[0], img.shape[1], img.shape[2]
         if output_res is None:
             output_res = (h * self.down_ratio, w * self.down_ratio)
         img = img.transpose(1, 2, 0).reshape(h, w, c).astype(np.float32)
+        maskB = img[:, :, 0] == 0
+        maskG = img[:, :, 0] == 0
+        maskR = img[:, :, 0] == 0
+        mask = np.logical_not(np.logical_and(np.logical_and(maskB, maskG), maskR))
 
-        color_map = (img * 255).astype(np.uint8)
+        if normalized:
+            RGB_mean = np.array([0.485, 0.456, 0.406], np.float32).reshape(1, 1, 3)
+            RGB_std = np.array([0.229, 0.224, 0.225], np.float32).reshape(1, 1, 3)
+            img[mask] = (img[mask] * RGB_std + RGB_mean) * 255
+            color_map = img.astype(np.uint8)
+        else:
+            color_map = (img * 255).astype(np.uint8)
         # color_map = cv2.resize(color_map, (output_res[0], output_res[1]))
         return color_map
+
+    def get_filtered_image(self, img):
+        filtered_images = []
+        filtered_images.append(cv2.blur(img, (3,3)))
+        filtered_images.append(cv2.GaussianBlur(img, (3, 3), 0))
+        filtered_images.append(cv2.medianBlur(img, 9))
+        filtered_images.append(cv2.bilateralFilter(img, 9, 75, 75))
+        return filtered_images
 
     def gen_colormap_RGB2(self, img, output_res=None):
         img = img.copy()
