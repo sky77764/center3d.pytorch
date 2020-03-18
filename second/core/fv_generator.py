@@ -37,6 +37,7 @@ class FrontviewGenerator:
         self._std = np.array([0.229, 0.224, 0.225], np.float32).reshape(1, 3)
 
     def generate(self, points, RGB_embedding=False, occupancy_embedding=False):
+        # num_points = points.shape[0]
         spherical_points = convert_to_spherical_coord(points)
         self._phi_min = spherical_points[:, 0].min()
         self._theta_min = spherical_points[:, 1].min()
@@ -58,27 +59,28 @@ class FrontviewGenerator:
 
         mask = remove_outside_points(fv_image_idx, self._fv_dim)
         points = points[mask]
-        spherical_points = spherical_points[mask]
         fv_image_idx = fv_image_idx[mask]
 
         if self._input_normalization:
             # xyz normalize
             points[:, 0:3] = (points[:, 0:3] - self._cartesian_coord_range[0:3]) / (self._cartesian_coord_range[3:6] - self._cartesian_coord_range[0:3])
-            # d normalize
-            spherical_points[:, 2] = spherical_points[:, 2] / self.spherical_coord_range[5]
             # RGB normalize
             if RGB_embedding:
                 points[:, 4:] = (points[:, 4:] / 255 - self._mean) / self._std
 
         if occupancy_embedding:
-            channel_embedding = np.concatenate((points[:, :3], spherical_points[:, 2:3], points[:, 3:], np.ones((points.shape[0], 1))), axis=1) # xyzdrbgro
+            channel_embedding = np.concatenate((points, np.ones((points.shape[0], 1))), axis=1) # xyzr(bgr)o
         else:
-            channel_embedding = np.concatenate((points[:, :3], spherical_points[:, 2:3], points[:, 3:]), axis=1)  # xyzdrbgr
+            channel_embedding = points  # xyzr(bgr)
 
         fv_image = np.zeros(self._fv_dim, dtype=np.float32)
+        # num_occupancy = 0
         for i, idx in enumerate(fv_image_idx):
+            # if not any(fv_image[idx[0], idx[1]]):
+            #     num_occupancy += 1
             fv_image[idx[0], idx[1]] = channel_embedding[i]
-        # fv_image = np.transpose(fv_image, [2, 1, 0])
+        # print("num_points: {}, num_occupancy: {} ({}%), num_pixel: {} ({}%)".format(num_points, num_occupancy, num_occupancy/num_points*100,
+        #       fv_image.shape[0]*fv_image.shape[1], num_occupancy/(fv_image.shape[0]*fv_image.shape[1])*100))
         return fv_image, mask
 
     @property

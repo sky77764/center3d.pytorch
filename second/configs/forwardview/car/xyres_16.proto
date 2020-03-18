@@ -3,8 +3,8 @@ model: {
     voxel_generator {
       point_cloud_range : [0, -39.68, -3, 69.12, 39.68, 1]
       #voxel_size : [1280, 384, 1]
-      #voxel_size : [640, 192, 5]
-      voxel_size : [512, 128, 5]
+      #voxel_size : [640, 192, 4]
+      voxel_size : [512, 128, 4]
       max_number_of_points_per_voxel : 100
     }
     num_class: 1

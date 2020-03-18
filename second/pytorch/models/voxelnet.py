@@ -525,7 +525,7 @@ class VoxelNet(nn.Module):
         self.crit_reg = L1Loss()
         self.crit_rot = BinRotLoss()
 
-        input_channel = 5
+        input_channel = 4
         if self._RGB_embedding:
             input_channel += 3
         if self._occupancy_embedding:
@@ -551,7 +551,7 @@ class VoxelNet(nn.Module):
         self.rpn_total_loss = metrics.Scalar()
         self.register_buffer("global_step", torch.LongTensor(1).zero_())
 
-        self.debug_mode = True
+        self.debug_mode = False
         self.save_imgs = False
         if self.debug_mode:
             self.debugger = Debugger(theme='black', num_classes=self._num_class, down_ratio=self._down_ratio)
@@ -561,47 +561,6 @@ class VoxelNet(nn.Module):
 
     def get_global_step(self):
         return int(self.global_step.cpu().numpy()[0])
-
-    def get_fvmap(self, voxels, coords, batch_size, RGB_embedding=False):
-        # voxels = torch.mean(voxels, dim=1, keepdim=True)
-        voxels = voxels[:, 0, :]
-        voxel_features = voxels.squeeze()
-        if not RGB_embedding:
-            channel_idx = 3
-            nx, ny, nchannels = self._output_shape[3], self._output_shape[2], 1
-        else:
-            nx, ny, nchannels = self._output_shape[3], self._output_shape[2], 3
-        batch_canvas = []
-        for batch_itt in range(batch_size):
-            # Create the canvas for this sample
-            canvas = torch.zeros(nchannels, nx * ny, dtype=voxel_features.dtype,
-                                 device=voxel_features.device)
-
-            # Only include non-empty pillars
-            batch_mask = coords[:, 0] == batch_itt
-            this_coords = coords[batch_mask, :]
-            indices = this_coords[:, 2] * nx + this_coords[:, 3]
-            indices = indices.type(torch.long)
-            voxels = voxel_features[batch_mask, :]
-            voxels = voxels.t()
-
-            # Now scatter the blob back to the canvas.
-            if not RGB_embedding:
-                canvas[:, indices] = voxels[channel_idx, :]
-            else:
-                canvas[:, indices] = voxels[5:, :]
-
-            # Append to a list for later stacking.
-            batch_canvas.append(canvas)
-
-        # Stack to 3-dim tensor (batch-size, nchannels, nrows*ncols)
-        batch_canvas = torch.stack(batch_canvas, 0)
-
-        # Undo the column stacking to final 4-dim tensor
-        batch_canvas = batch_canvas.view(batch_size, nchannels, ny, nx)
-
-        spherical_points = batch_canvas.cpu().numpy()
-        return spherical_points
 
     def make_input_img(self, fv_image, batch_size, batch_imgidx, RGB_embedding=False, channel_idx=3, id_suffix='D'):
         for i in range(batch_size):
@@ -654,10 +613,9 @@ class VoxelNet(nn.Module):
                 self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=0, id_suffix='X')
                 self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=1, id_suffix='Y')
                 self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=2, id_suffix='Z')
-                self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=3, id_suffix='D')
-                self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=4, id_suffix='R')
+                self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=3, id_suffix='R')
                 if self._occupancy_embedding:
-                    occupancy_idx = 5
+                    occupancy_idx = 4
                     if self._RGB_embedding:
                         occupancy_idx += 3
                     self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=occupancy_idx, id_suffix='O')
@@ -665,7 +623,7 @@ class VoxelNet(nn.Module):
 
                 if self._RGB_embedding:
                     self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], RGB_embedding=True,
-                                        channel_idx=5, id_suffix='RGB')
+                                        channel_idx=4, id_suffix='RGB')
 
                     for i in range(batch_size_dev):
                         RGB_image = example["RGB_image"][i]
@@ -785,8 +743,7 @@ class VoxelNet(nn.Module):
             # self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=0, id_suffix='X')
             # self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=1, id_suffix='Y')
             # self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=2, id_suffix='Z')
-            self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=3, id_suffix='D')
-            self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=4, id_suffix='R')
+            self.make_input_img(example['fv_image'], batch_size, example['image_idx'], channel_idx=3, id_suffix='R')
             # self.make_channel_img(output['hm'].detach().cpu().numpy(), batch_size, example['image_idx'], id='HM')
 
             # for i in range(batch_size):
@@ -795,7 +752,7 @@ class VoxelNet(nn.Module):
 
             if self._RGB_embedding:
                 self.make_input_img(example['fv_image'], batch_size, example['image_idx'], RGB_embedding=True,
-                                    channel_idx=5, id_suffix='RGB')
+                                    channel_idx=4, id_suffix='RGB')
                 for i in range(batch_size):
                     RGB_image = example["RGB_image"][i]
                     self.debugger.add_img(RGB_image, img_id='RGB ' + str(example['image_idx'][i]))
