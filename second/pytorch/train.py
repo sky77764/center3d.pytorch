@@ -98,6 +98,8 @@ def train(config_path,
             model_dir = torchplus.train.create_folder(model_dir)
 
     model_dir = pathlib.Path(model_dir)
+    if str(model_dir).endswith('test') and os.path.exists(model_dir):
+        shutil.rmtree(model_dir)
     model_dir.mkdir(parents=True, exist_ok=True)
     eval_checkpoint_dir = model_dir / 'eval_checkpoints'
     eval_checkpoint_dir.mkdir(parents=True, exist_ok=True)

@@ -551,7 +551,7 @@ class VoxelNet(nn.Module):
         self.rpn_total_loss = metrics.Scalar()
         self.register_buffer("global_step", torch.LongTensor(1).zero_())
 
-        self.debug_mode = False
+        self.debug_mode = True
         self.save_imgs = False
         if self.debug_mode:
             self.debugger = Debugger(theme='black', num_classes=self._num_class, down_ratio=self._down_ratio)
@@ -652,8 +652,8 @@ class VoxelNet(nn.Module):
         if self.training:
             if self.debug_mode:
                 self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=0, id_suffix='X')
-                # self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=1, id_suffix='Y')
-                # self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=2, id_suffix='Z')
+                self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=1, id_suffix='Y')
+                self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=2, id_suffix='Z')
                 self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=3, id_suffix='D')
                 self.make_input_img(example['fv_image'], batch_size_dev, example['image_idx'], channel_idx=4, id_suffix='R')
                 if self._occupancy_embedding:
@@ -707,7 +707,11 @@ class VoxelNet(nn.Module):
                                                         img_id=str(example['image_idx'][i])+'_R')
                         self.debugger.add_point(box_centers_in_image[j], c=(0, 255, 0), img_id=str(example['image_idx'][i])+'_R')
 
-                self.debugger.show_all_imgs(pause=True, stack=True, ids=example['image_idx'])
+
+                if self.save_imgs:
+                    self.debugger.save_all_imgs(path=str(self._save_path) + '/visualize/', stack=True, ids=example['image_idx'])
+                else:
+                    self.debugger.show_all_imgs(pause=True, stack=True, ids=example['image_idx'])
                 self.debugger.remove_all_imgs()
 
             # labels = example['labels']

@@ -410,7 +410,7 @@ def prep_pointcloud(input_dict,
         'P2': P2
     })
     if RGB_embedding:
-        RGB_image = cv2.resize(RGB_image, (640, 192))
+        RGB_image = cv2.resize(RGB_image, (image_w, image_h))
         example.update({
             'RGB_image': RGB_image
         })

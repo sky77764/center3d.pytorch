@@ -261,19 +261,21 @@ class Debugger(object):
     def save_img(self, imgId='default', path='./cache/debug/'):
         cv2.imwrite(path + '{}.png'.format(imgId), self.imgs[imgId])
 
-    def save_all_imgs(self, path='./cache/debug/', prefix='', genID=False):
+    def save_all_imgs(self, path='./cache/debug/', prefix='', stack=False, ids=None):
         if not os.path.exists(path):
             os.makedirs(path)
-
-        if genID:
-            try:
-                idx = int(np.loadtxt(path + '/id.txt'))
-            except:
-                idx = 0
-            prefix = idx
-            np.savetxt(path + '/id.txt', np.ones(1) * (idx + 1), fmt='%d')
-        for i, v in self.imgs.items():
-            cv2.imwrite(path + '/{}{}.png'.format(prefix, i), v)
+        if not stack:
+            for i, v in self.imgs.items():
+                cv2.imwrite(path + '/{}{}.png'.format(prefix, i), v)
+        else:
+            for id in ids:
+                id = str(id)
+                stacked_image = []
+                for i, v in self.imgs.items():
+                    if id in i:
+                        stacked_image.append(v)
+                stacked_image = np.concatenate(stacked_image, axis=0)
+                cv2.imwrite(path + '/{}.png'.format(id), stacked_image)
 
 
     def remove_side(self, img_id, img):
